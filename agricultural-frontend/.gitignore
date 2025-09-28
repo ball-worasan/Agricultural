@@ -1,0 +1,31 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+pnpm-debug.log*
+
+# Next.js
+.next/
+out/
+.next/cache/
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Testing / Coverage
+coverage/
+.junit/
+test-results/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.cache/
+tmp/
