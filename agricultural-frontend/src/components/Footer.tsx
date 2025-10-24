@@ -9,13 +9,13 @@ import Grid from "@mui/material/Grid";
 export default function Footer() {
   return (
     <Box sx={{ mt: 8, bgcolor: "primary.main", color: "primary.contrastText" }}>
-      <Container maxWidth="lg" sx={{ py: 6 }}>
-        <Grid container spacing={4}>
+      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+        <Grid container spacing={{ xs: 2, md: 4 }}>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <Typography variant="h6" fontWeight={800} gutterBottom>
               🏢 เกี่ยวกับเรา
             </Typography>
-            <Typography sx={{ opacity: 0.95 }}>
+            <Typography sx={{ opacity: 0.95, wordBreak: "break-word" }}>
               แพลตฟอร์มเช่าพื้นที่ออนไลน์ที่ใหญ่ที่สุดในประเทศไทย
             </Typography>
             <Typography sx={{ opacity: 0.9 }}>
@@ -39,7 +39,7 @@ export default function Footer() {
               href="mailto:info@rentspace.com"
               color="inherit"
               underline="hover"
-              sx={{ display: "block" }}
+              sx={{ display: "block", wordBreak: "break-word" }}
             >
               📧 info@rentspace.com
             </Link>
@@ -124,8 +124,10 @@ export default function Footer() {
         </Grid>
       </Container>
 
-      <Box sx={{ textAlign: "center", py: 2, bgcolor: "rgba(0,0,0,.08)" }}>
-        <Typography variant="body2">
+      <Box
+        sx={{ textAlign: "center", py: 2, bgcolor: "rgba(0,0,0,.08)", px: 2 }}
+      >
+        <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
           © 2025 RentSpace - เช่าพื้นที่ออนไลน์. สงวนสิทธิ์ทุกประการ.
         </Typography>
       </Box>

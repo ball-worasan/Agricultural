@@ -1,12 +1,12 @@
 "use client";
 
-import { createTheme, alpha } from "@mui/material/styles";
+import { alpha, createTheme } from "@mui/material/styles";
 
-/** พาเลตหลัก */
-const forest = "#1C352D"; // primary
-const sage = "#A6B28B"; // secondary accent
-const peach = "#F5C9B0"; // soft accent
-const porcelain = "#F9F6F3"; // background
+/** 🎨 Brand palette (เดิม) */
+const forest = "#1C352D";
+const sage = "#A6B28B";
+const peach = "#F5C9B0";
+const porcelain = "#F9F6F3";
 
 export const glass = (opacity = 0.55) => ({
   backdropFilter: "blur(10px)",
@@ -23,9 +23,13 @@ export const glass = (opacity = 0.55) => ({
 });
 
 const theme = createTheme({
+  breakpoints: {
+    // ใช้ค่ามาตรฐาน + ย้ำเพื่ออ่านง่าย
+    values: { xs: 0, sm: 600, md: 900, lg: 1200, xl: 1536 },
+  },
   palette: {
     mode: "light",
-    primary: { main: forest, contrastText: "#F9F6F3" },
+    primary: { main: forest, contrastText: porcelain },
     secondary: { main: sage, contrastText: forest },
     background: { default: porcelain, paper: "#ffffff" },
     text: { primary: forest, secondary: "#556963" },
@@ -37,14 +41,31 @@ const theme = createTheme({
   typography: {
     fontFamily:
       'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial',
-    h1: { fontWeight: 900, letterSpacing: -0.6 },
-    h2: { fontWeight: 900, letterSpacing: -0.5 },
-    h3: { fontWeight: 800 },
-    h4: { fontWeight: 800 },
+    h1: {
+      fontWeight: 900,
+      letterSpacing: -0.6,
+      fontSize: "clamp(2rem, 2.5vw + 1rem, 3.25rem)",
+      lineHeight: 1.12,
+    },
+    h2: {
+      fontWeight: 900,
+      letterSpacing: -0.5,
+      fontSize: "clamp(1.75rem, 2.1vw + 1rem, 2.75rem)",
+      lineHeight: 1.15,
+    },
+    h3: { fontWeight: 800, fontSize: "clamp(1.35rem, 1.4vw + 1rem, 2rem)" },
+    h4: { fontWeight: 800, fontSize: "clamp(1.15rem, 1.1vw + 1rem, 1.6rem)" },
     button: { textTransform: "none", fontWeight: 700 },
   },
   components: {
-    MuiContainer: { styleOverrides: { root: { paddingInline: 16 } } },
+    MuiContainer: {
+      styleOverrides: {
+        root: {
+          paddingInline: 16,
+          maxWidth: "var(--mui-container-max, 1200px)",
+        },
+      },
+    },
     MuiAppBar: {
       styleOverrides: {
         root: {
@@ -55,9 +76,7 @@ const theme = createTheme({
     },
     MuiPaper: {
       defaultProps: { elevation: 0 },
-      styleOverrides: {
-        root: { border: "1px solid rgba(0,0,0,.06)" },
-      },
+      styleOverrides: { root: { border: "1px solid rgba(0,0,0,.06)" } },
     },
     MuiCard: {
       styleOverrides: {

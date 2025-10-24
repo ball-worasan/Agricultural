@@ -1,7 +1,7 @@
 :root {
   --bg: #f9f6f3; /* Porcelain */
   --fg: #1c352d; /* Forest */
-  --muted: #556963; /* Desaturated forest for secondary text */
+  --muted: #556963; /* Secondary text */
   --sage: #a6b28b; /* Sage */
   --peach: #f5c9b0; /* Peach */
 
@@ -15,7 +15,7 @@
     --bg: #131a17;
     --fg: #e7efe8;
     --muted: #a5b3ac;
-    --brand-1: #a6b28b; /* flip accent for dark */
+    --brand-1: #a6b28b;
     --brand-2: #1c352d;
     --brand-3: #f5c9b0;
   }
@@ -26,7 +26,17 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
 }
+img,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 body {
+  --hero-pad-top: clamp(3rem, 6vw, 6rem);
+  --hero-pad-bot: clamp(2rem, 5vw, 5rem);
+
   color: var(--fg);
   background: radial-gradient(
       900px 360px at 12% -10%,
@@ -38,7 +48,7 @@ body {
       rgba(166, 178, 139, 0.1),
       transparent 55%
     ),
-    #f9f6f3; /* porcelain base */
+    var(--bg);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
     Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   -webkit-font-smoothing: antialiased;
@@ -55,7 +65,6 @@ a {
   text-decoration: none;
 }
 
-/* Subtle hero/background glow */
 .grad {
   background: radial-gradient(
       1000px 400px at 15% -10%,
@@ -69,7 +78,6 @@ a {
     );
 }
 
-/* Card hover */
 .card-hover {
   transition: transform 0.22s ease, box-shadow 0.22s ease;
   will-change: transform;
@@ -82,6 +90,22 @@ a {
 :focus-visible {
   outline: 2px solid color-mix(in oklab, var(--brand-2) 50%, white);
   outline-offset: 2px;
+}
+
+/* utilities */
+.only-sm {
+  display: none;
+}
+.only-mdup {
+  display: block;
+}
+@media (max-width: 599.98px) {
+  .only-sm {
+    display: block;
+  }
+  .only-mdup {
+    display: none;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

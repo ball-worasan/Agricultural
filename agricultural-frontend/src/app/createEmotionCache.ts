@@ -16,8 +16,10 @@ export default function createEmotionCache() {
     key: "mui",
     insertionPoint,
   });
-  // เพื่อความเข้ากันได้บางเคส
+
+  // เพื่อความเข้ากันได้ในบางเคส
   // @ts-ignore
   cache.compat = true;
+
   return cache;
 }

@@ -10,6 +10,7 @@ import Reveal from "@/components/Reveal";
 import SearchSection from "@/components/SearchSection";
 import CardsGrid from "@/components/CardsGrid";
 import Footer from "@/components/Footer";
+import Link from "next/link";
 
 export default function Page() {
   return (
@@ -20,14 +21,18 @@ export default function Page() {
       <Box
         className="grad"
         sx={{
-          pt: { xs: 8, md: 12 },
-          pb: { xs: 6, md: 10 },
+          pt: "var(--hero-pad-top)",
+          pb: "var(--hero-pad-bot)",
           borderBottom: "1px solid rgba(0,0,0,.06)",
         }}
       >
         <Container maxWidth="lg">
           <Reveal>
-            <Stack spacing={2} alignItems="center" textAlign="center">
+            <Stack
+              spacing={{ xs: 2, md: 3 }}
+              alignItems="center"
+              textAlign="center"
+            >
               <Typography
                 variant="h2"
                 sx={{
@@ -41,19 +46,36 @@ export default function Page() {
               >
                 เช่าพื้นที่ออนไลน์ แบบง่ายสุด ๆ
               </Typography>
-              <Typography variant="h6" color="text.secondary" maxWidth={720}>
+              <Typography
+                variant="h6"
+                color="text.secondary"
+                maxWidth={720}
+                sx={{ px: { xs: 2, md: 0 } }}
+              >
                 ค้นหา–จอง–ทำสัญญา–ชำระเงิน ในที่เดียว ดีไซน์มินิมอล
                 ใช้งานลื่นทุกหน้าจอ
               </Typography>
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 spacing={2}
-                sx={{ pt: 1 }}
+                sx={{ pt: 1, width: "100%", justifyContent: "center" }}
               >
-                <Button variant="contained" size="large">
+                <Button
+                  component={Link}
+                  href="/reserve/list"
+                  variant="contained"
+                  size="large"
+                  sx={{ minWidth: { xs: "100%", sm: 220 } }}
+                >
                   เริ่มค้นหาพื้นที่
                 </Button>
-                <Button variant="outlined" size="large">
+                <Button
+                  component={Link}
+                  href="/account/spaces"
+                  variant="outlined"
+                  size="large"
+                  sx={{ minWidth: { xs: "100%", sm: 220 } }}
+                >
                   ปล่อยเช่าพื้นที่ของคุณ
                 </Button>
               </Stack>
@@ -71,7 +93,7 @@ export default function Page() {
 
       {/* Recommended */}
       <Container maxWidth="lg" sx={{ pb: { xs: 6, md: 10 } }}>
-        <Box mt={4}>
+        <Box mt={{ xs: 2, md: 4 }}>
           <Reveal>
             <Typography
               variant="h4"
@@ -88,7 +110,6 @@ export default function Page() {
               พื้นที่แนะนำ
             </Typography>
           </Reveal>
-
           <Reveal>
             <CardsGrid />
           </Reveal>
