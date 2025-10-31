@@ -4,48 +4,102 @@ services:
   backend:
     build:
       context: ./agricultural-backend
-      dockerfile: Dockerfile.dev
     container_name: agricultural-backend
     ports:
-      - "4000:3000" # Host:Container (Nest listens on 3000)
+      - "4000:3000"
     env_file:
       - ./agricultural-backend/.env
-    environment:
-      - NODE_ENV=development
-      - CHOKIDAR_USEPOLLING=true
-      - CHOKIDAR_INTERVAL=300
-      - TZ=Asia/Bangkok
-      # ถ้าไม่ได้ใส่ใน .env ให้ใส่ตรงนี้แทน (ตัวอย่าง):
-      # - MONGODB_URI=mongodb://root:example@mongodb:27017/agricultural?authSource=admin
     volumes:
-      - ./agricultural-backend:/app:delegated
+      - ./agricultural-backend:/app
       - backend_node_modules:/app/node_modules
-    command: ["pnpm", "start:dev"] # Nest watch
+    command:
+      - sh
+      - -lc
+      - |
+        corepack enable
+        pnpm -v
+        # ติดตั้ง deps ถ้ายังไม่มี binary หลัก
+        if [ ! -x node_modules/.bin/nest ] && [ ! -x node_modules/.bin/ts-node ]; then
+          pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+        fi
+        # ใส่ swagger ถ้ายังไม่มี (กัน TS2307)
+        node -e "const d=require('./package.json').dependencies||{};process.exit(d['@nestjs/swagger']?0:1)" \
+        || pnpm add @nestjs/swagger swagger-ui-express
+        exec pnpm start:dev
     working_dir: /app
     depends_on:
       mongodb:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "require(''http'').get(''http://localhost:3000'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [appnet]
 
   frontend:
     build:
       context: ./agricultural-frontend
-      dockerfile: Dockerfile.dev
     container_name: agricultural-frontend
     ports:
-      - "3000:3000" # Next dev server
+      - "3000:3000"
     env_file:
       - ./agricultural-frontend/.env
-    environment:
-      - NODE_ENV=development
-      - WATCHPACK_POLLING=true
-      - TZ=Asia/Bangkok
-      - NEXT_PUBLIC_API_BASE=http://localhost:4000
     volumes:
-      - ./agricultural-frontend:/app:delegated
+      - ./agricultural-frontend:/app
       - frontend_node_modules:/app/node_modules
-    # สำคัญ: ให้ Next bind 0.0.0.0
-    command: ["pnpm", "dev", "-p", "3000", "--hostname", "0.0.0.0"]
+    command:
+      - sh
+      - -lc
+      - |
+        corepack enable
+        pnpm -v
+        if [ ! -x node_modules/.bin/next ]; then
+          pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+        fi
+        exec pnpm dev -p 3000 --hostname 0.0.0.0   # ← ไม่มี --turbopack
     working_dir: /app
+    depends_on:
+      backend:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "require(''http'').get(''http://localhost:3000'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [appnet]
 
   mongodb:
     image: mongo:8.0
@@ -56,17 +110,34 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
+      TZ: Asia/Bangkok
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ ping: 1 }).ok"]
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--eval",
+          "db.adminCommand({ ping: 1 }).ok",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
-
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [appnet]
 
 volumes:
   backend_node_modules:
   frontend_node_modules:
   mongo_data:
+
+networks:
+  appnet:
+    driver: bridge

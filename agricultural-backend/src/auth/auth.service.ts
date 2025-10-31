@@ -3,6 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 
+const DUMMY_HASH =
+  '$2b$12$D5U6gK1uUQhE9oSJb3M8luQp0nH2l8dI3y4T1QpQn5a9iJdZK1o6a'; // hash ของสตริงปลอม
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -13,13 +16,14 @@ export class AuthService {
   ) {}
 
   async validateUser(identifier: string, password: string) {
-    // ไทย: แยกตาม email / username
     const byEmail = identifier.includes('@');
     const user = byEmail
       ? await this.usersService.findByEmailWithPassword(identifier)
       : await this.usersService.findByUsernameWithPassword(identifier);
 
     if (!user) {
+      // fake compare เพื่อให้เวลาใกล้เคียงกรณี user มีจริง
+      await bcrypt.compare(password, DUMMY_HASH).catch(() => void 0);
       this.logger.warn(`validate failed (user not found)`);
       throw new UnauthorizedException('invalid credentials');
     }

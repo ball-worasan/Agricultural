@@ -1,10 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule, MongooseModuleOptions } from '@nestjs/mongoose';
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/validation';
 import mongoose from 'mongoose';
-import { Logger } from '@nestjs/common';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -22,7 +21,7 @@ const mongoLogger = new Logger('Mongo');
       validationSchema: envValidationSchema,
       expandVariables: true,
     }),
-    // ไทย: ตั้งค่าการเชื่อม MongoDB แบบ async
+    // ไทย: ตั้งค่าเชื่อม MongoDB แบบ async
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       useFactory: async (cfg: ConfigService) => {
@@ -31,11 +30,14 @@ const mongoLogger = new Logger('Mongo');
 
         // ไทย: เปิด mongoose debug ด้วยฟอร์แมต log ที่อ่านง่าย
         if (mongo.debug) {
-          mongoose.set('debug', (coll: string, method: string, query: any, doc: any, options: any) => {
-            mongoLogger.debug(
-              `db.${coll}.${method} q=${JSON.stringify(query)} doc=${JSON.stringify(doc)} opt=${JSON.stringify(options)}`
-            );
-          });
+          mongoose.set(
+            'debug',
+            (coll: string, method: string, query: any, doc: any, options: any) => {
+              mongoLogger.debug(
+                `db.${coll}.${method} q=${JSON.stringify(query)} doc=${JSON.stringify(doc)} opt=${JSON.stringify(options)}`
+              );
+            }
+          );
           mongoLogger.warn('Mongoose debug mode is ON');
         }
 
@@ -43,7 +45,9 @@ const mongoLogger = new Logger('Mongo');
         mongoose.connection.on('connected', () => mongoLogger.log('Connected'));
         mongoose.connection.on('disconnected', () => mongoLogger.warn('Disconnected'));
         mongoose.connection.on('reconnected', () => mongoLogger.log('Reconnected'));
-        mongoose.connection.on('error', (e) => mongoLogger.error(`Error: ${e?.message}`, (e as any)?.stack));
+        mongoose.connection.on('error', (e) =>
+          mongoLogger.error(`Error: ${e?.message}`, (e as any)?.stack)
+        );
 
         // ไทย: เลือกตัวบีบอัดตามไลบรารีที่มี
         const compressors: ('zstd' | 'snappy')[] = [];
@@ -62,7 +66,8 @@ const mongoLogger = new Logger('Mongo');
         if (compressors.length) mongoLogger.log(`Compressors: ${compressors.join(', ')}`);
         else mongoLogger.debug('No compressors enabled');
 
-        return {
+        // ไทย: ต่อออปชันสำคัญ (retryWrites/w) จาก ENV
+        const options: MongooseModuleOptions = {
           uri: mongo.uri,
           autoIndex: nodeEnv !== 'production',
           serverSelectionTimeoutMS: mongo.serverSelectionTimeoutMS,
@@ -70,10 +75,13 @@ const mongoLogger = new Logger('Mongo');
           maxPoolSize: mongo.maxPoolSize,
           minPoolSize: mongo.minPoolSize,
           maxIdleTimeMS: mongo.maxIdleTimeMS,
-          retryWrites: true,
+          retryWrites: mongo.retryWrites,            // ← ENV ควบคุม
+          w: mongo.w,                                // ← ENV ควบคุม (write concern)
           ...(compressors.length ? { compressors } : {}),
           appName: 'agricultural-rental-api',
-        } as MongooseModuleOptions;
+        };
+
+        return options;
       },
     }),
     UsersModule,

@@ -10,6 +10,13 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import InputLabel from "@mui/material/InputLabel";
 import Button from "@mui/material/Button";
+import InputAdornment from "@mui/material/InputAdornment";
+import IconButton from "@mui/material/IconButton";
+import Search from "@mui/icons-material/Search";
+import PlaceIcon from "@mui/icons-material/Place";
+import CategoryIcon from "@mui/icons-material/Category";
+import PaidIcon from "@mui/icons-material/Paid";
+import Close from "@mui/icons-material/Close";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -30,23 +37,35 @@ export default function SearchSection() {
 
   const fieldSx = {
     "& .MuiOutlinedInput-root": {
-      "& fieldset": { borderColor: "black" },
-      "&:hover fieldset": { borderColor: "black" },
-      "&.Mui-focused fieldset": { borderColor: "black" },
-      backgroundColor: "#ffffff",
-      color: "green",
+      bgcolor: "background.paper",
+      borderRadius: 2, // 16px
+      "& fieldset": { borderColor: "divider" },
+      "&:hover fieldset": { borderColor: "text.primary" },
+      "&.Mui-focused fieldset": {
+        borderColor: "primary.main",
+        boxShadow: (t: any) => `0 0 0 3px ${t.palette.action.focus}`,
+      },
     },
-    "& .MuiInputBase-input": { color: "green" },
-    "& .MuiInputLabel-root": { color: "green" },
-    "& .MuiInputLabel-root.Mui-focused": { color: "green" },
+  };
+
+  const hasAny = !!(place || type || budget);
+
+  const resetAll = () => {
+    setPlace("");
+    setType("");
+    setBudget("");
+    router.push("/reserve/list");
   };
 
   return (
     <Paper
+      elevation={0}
       sx={{
         p: { xs: 2.5, md: 5 },
-        backgroundColor: "#ffffff",
-        border: "1px solid #1C352D",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 3,
+        bgcolor: "background.paper",
       }}
     >
       <Typography
@@ -56,8 +75,9 @@ export default function SearchSection() {
         sx={{
           mb: { xs: 2, md: 3 },
           letterSpacing: "-0.5px",
-          color: "green",
-          px: { xs: 1, md: 0 },
+          background: "linear-gradient(135deg, var(--brand-1), var(--brand-2))",
+          WebkitBackgroundClip: "text",
+          color: "transparent",
         }}
       >
         ค้นหาพื้นที่เช่า
@@ -65,24 +85,48 @@ export default function SearchSection() {
 
       <Box component="form" onSubmit={handleSubmit}>
         <Grid container spacing={{ xs: 1.5, md: 2 }} alignItems="end">
-          <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+          <Grid size={{ xs: 12, md: 6, lg: 5 }}>
             <TextField
               fullWidth
-              label="📍 สถานที่"
+              label="สถานที่"
               placeholder="เช่น กรุงเทพ, เชียงใหม่"
-              sx={fieldSx}
               value={place}
               onChange={(e) => setPlace(e.target.value)}
+              sx={fieldSx}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PlaceIcon />
+                  </InputAdornment>
+                ),
+                endAdornment: place ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="ล้างสถานที่"
+                      onClick={() => setPlace("")}
+                      edge="end"
+                    >
+                      <Close />
+                    </IconButton>
+                  </InputAdornment>
+                ) : undefined,
+              }}
             />
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2.5 }}>
             <FormControl fullWidth sx={fieldSx}>
-              <InputLabel id="type-label">🏢 ประเภท</InputLabel>
+              <InputLabel id="type-label">ประเภท</InputLabel>
               <Select
                 labelId="type-label"
+                label="ประเภท"
                 value={type}
                 onChange={(e) => setType(String(e.target.value))}
+                startAdornment={
+                  <InputAdornment position="start" sx={{ pl: 1 }}>
+                    <CategoryIcon fontSize="small" />
+                  </InputAdornment>
+                }
               >
                 <MenuItem value="">เลือกประเภท</MenuItem>
                 <MenuItem value="office">สำนักงาน</MenuItem>
@@ -93,13 +137,19 @@ export default function SearchSection() {
             </FormControl>
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2.5 }}>
             <FormControl fullWidth sx={fieldSx}>
-              <InputLabel id="budget-label">💰 งบประมาณ</InputLabel>
+              <InputLabel id="budget-label">งบประมาณ</InputLabel>
               <Select
                 labelId="budget-label"
+                label="งบประมาณ"
                 value={budget}
                 onChange={(e) => setBudget(String(e.target.value))}
+                startAdornment={
+                  <InputAdornment position="start" sx={{ pl: 1 }}>
+                    <PaidIcon fontSize="small" />
+                  </InputAdornment>
+                }
               >
                 <MenuItem value="">เลือกงบประมาณ</MenuItem>
                 <MenuItem value="0-10000">0 - 10,000 บาท</MenuItem>
@@ -109,22 +159,31 @@ export default function SearchSection() {
             </FormControl>
           </Grid>
 
-          <Grid size={{ xs: 12, md: 2 }}>
-            <Button
-              type="submit"
-              variant="contained"
-              size="large"
-              sx={{
-                width: { xs: "100%", md: "auto" },
-                minWidth: { xs: "100%", md: 160 },
-                height: 56,
-                backgroundColor: "green",
-                color: "white",
-                "&:hover": { backgroundColor: "darkgreen" },
-              }}
-            >
-              🔍 ค้นหา
-            </Button>
+          <Grid size={{ xs: 12, md: 12, lg: 2 }}>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                startIcon={<Search />}
+                sx={{ flex: 1, height: 56 }}
+              >
+                ค้นหา
+              </Button>
+
+              {hasAny && (
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  size="large"
+                  onClick={resetAll}
+                  startIcon={<Close />}
+                  sx={{ height: 56, whiteSpace: "nowrap" }}
+                >
+                  เคลียร์
+                </Button>
+              )}
+            </Box>
           </Grid>
         </Grid>
       </Box>

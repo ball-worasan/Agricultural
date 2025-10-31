@@ -28,16 +28,26 @@ export class UsersService {
   }
 
   private sanitize(user: UserDocument | (User & { _id: any })) {
-    const obj = typeof (user as any).toJSON === 'function' ? (user as any).toJSON() : user;
+    const obj =
+      typeof (user as any).toJSON === 'function'
+        ? (user as any).toJSON()
+        : user;
     delete (obj as any).passwordHash;
     return obj;
   }
 
   async create(dto: CreateUserDto) {
-    this.logger.debug(`create user requested (email=${dto.email.toLowerCase()}, username=${dto.username.toLowerCase()})`);
+    this.logger.debug(
+      `create user requested (email=${dto.email.toLowerCase()}, username=${dto.username.toLowerCase()})`,
+    );
     // ไทย: กันซ้ำเบื้องต้น
     const existing = await this.userModel
-      .findOne({ $or: [{ email: dto.email.toLowerCase() }, { username: dto.username.toLowerCase() }] })
+      .findOne({
+        $or: [
+          { email: dto.email.toLowerCase() },
+          { username: dto.username.toLowerCase() },
+        ],
+      })
       .lean();
     if (existing) {
       this.logger.warn(`create user conflict (email/username exists)`);
@@ -86,12 +96,35 @@ export class UsersService {
 
   async findByEmailWithPassword(email: string) {
     this.logger.debug(`findByEmailWithPassword (email=${email.toLowerCase()})`);
-    return this.userModel.findOne({ email: email.toLowerCase() }).select('+passwordHash').exec();
+    return this.userModel
+      .findOne({ email: email.toLowerCase() })
+      .select('+passwordHash')
+      .exec();
   }
 
   async findByUsernameWithPassword(username: string) {
-    this.logger.debug(`findByUsernameWithPassword (username=${username.toLowerCase()})`);
-    return this.userModel.findOne({ username: username.toLowerCase() }).select('+passwordHash').exec();
+    this.logger.debug(
+      `findByUsernameWithPassword (username=${username.toLowerCase()})`,
+    );
+    return this.userModel
+      .findOne({ username: username.toLowerCase() })
+      .select('+passwordHash')
+      .exec();
+  }
+
+  async findAllPaged(page = 1, limit = 20) {
+    const skip = (Math.max(1, page) - 1) * Math.max(1, limit);
+    const [items, total] = await Promise.all([
+      this.userModel.find().skip(skip).limit(limit).lean(),
+      this.userModel.countDocuments(),
+    ]);
+    return {
+      ok: true,
+      page,
+      limit,
+      total,
+      items: items.map((u) => this.sanitize(u as any)),
+    };
   }
 
   async update(id: string, dto: UpdateUserDto) {
@@ -108,7 +141,9 @@ export class UsersService {
     if (dto.username) update.username = dto.username.toLowerCase();
 
     try {
-      const updated = await this.userModel.findByIdAndUpdate(id, update, { new: true });
+      const updated = await this.userModel.findByIdAndUpdate(id, update, {
+        new: true,
+      });
       if (!updated) {
         this.logger.warn(`user not found on update (id=${id})`);
         throw new NotFoundException('user not found');

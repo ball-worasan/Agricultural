@@ -1,5 +1,6 @@
+// users/schemas/user.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 export type UserDocument = HydratedDocument<User>;
 
@@ -9,16 +10,28 @@ export type UserDocument = HydratedDocument<User>;
   versionKey: false,
 })
 export class User {
-  _id!: any;
+  _id!: Types.ObjectId;
 
   @Prop({ required: true, trim: true })
-  fullname!: string; // ไทย: ชื่อเต็ม
+  fullname!: string;
 
-  @Prop({ required: true, trim: true, lowercase: true, unique: true, index: true })
-  username!: string; // ไทย: เล็กหมดเพื่อกันซ้ำ
+  @Prop({
+    required: true,
+    trim: true,
+    lowercase: true,
+    unique: true,
+    index: true,
+  })
+  username!: string;
 
-  @Prop({ required: true, trim: true, lowercase: true, unique: true, index: true })
-  email!: string; // ไทย: เล็กหมดเพื่อกันซ้ำ
+  @Prop({
+    required: true,
+    trim: true,
+    lowercase: true,
+    unique: true,
+    index: true,
+  })
+  email!: string;
 
   @Prop({ trim: true })
   address?: string;
@@ -27,7 +40,10 @@ export class User {
   phone?: string;
 
   @Prop({ required: true, select: false })
-  passwordHash!: string; // ไทย: เก็บเฉพาะแฮช ไม่ดึงออกโดยดีฟอลต์
+  passwordHash!: string;
+
+  @Prop({ type: Date })
+  passwordChangedAt?: Date;
 
   createdAt!: Date;
   updatedAt!: Date;
@@ -35,7 +51,6 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// ไทย: hide passwordHash ตอน toJSON
 UserSchema.set('toJSON', {
   transform: function (_doc, ret: any) {
     delete ret.passwordHash;

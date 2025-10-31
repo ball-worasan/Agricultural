@@ -23,7 +23,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const reqId = (request.headers['x-request-id'] as string) || '-';
-    const ip = request.ip || request.socket?.remoteAddress || '-';
+    const ip = request.ip || (request.socket?.remoteAddress as string) || '-';
+
+    // ไทย: แยก message ให้เหมาะ — ไม่ส่ง stack ออก client
+    let message = 'Internal server error';
+    if (exception instanceof HttpException) {
+      const res = exception.getResponse();
+      if (typeof res === 'string') {
+        message = res;
+      } else if (res && typeof res === 'object' && 'message' in (res as any)) {
+        message = (res as any).message ?? exception.message;
+      } else {
+        message = exception.message;
+      }
+    }
 
     const payload = {
       ok: false,
@@ -33,20 +46,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       requestId: reqId,
       ip,
       timestamp: new Date().toISOString(),
-      message:
-        exception instanceof HttpException
-          ? exception.message
-          : 'Internal server error',
+      message,
     };
 
     if (status >= 500) {
-      // ไทย: เซิร์ฟเวอร์พังให้ใช้ error + แนบ stack
+      // ไทย: 5xx → error พร้อม stack ใน server log เท่านั้น
       this.logger.error(
         `[${request.method}] ${request.url} (reqId=${reqId}, ip=${ip})`,
         (exception as any)?.stack ?? String(exception),
       );
     } else {
-      // ไทย: 4xx ให้ warn พอ
+      // ไทย: 4xx → warn
       this.logger.warn(
         `[${request.method}] ${request.url} -> ${status}: ${payload.message} (reqId=${reqId}, ip=${ip})`,
       );

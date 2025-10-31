@@ -13,4 +13,10 @@ export class AppController {
     this.logger.debug(`GET / (reqId=${req.headers['x-request-id']})`);
     return this.appService.getHello();
   }
+
+  // ไทย: health-check แบบเร็ว (ใช้กับ LB/K8s)
+  @Get('/health')
+  health() {
+    return { ok: true, ts: new Date().toISOString() };
+  }
 }

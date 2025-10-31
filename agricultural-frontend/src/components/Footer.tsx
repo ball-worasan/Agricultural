@@ -9,7 +9,7 @@ import Grid from "@mui/material/Grid";
 export default function Footer() {
   return (
     <Box sx={{ mt: 8, bgcolor: "primary.main", color: "primary.contrastText" }}>
-      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+      {/* <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
         <Grid container spacing={{ xs: 2, md: 4 }}>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <Typography variant="h6" fontWeight={800} gutterBottom>
@@ -122,7 +122,7 @@ export default function Footer() {
             </Link>
           </Grid>
         </Grid>
-      </Container>
+      </Container> */}
 
       <Box
         sx={{ textAlign: "center", py: 2, bgcolor: "rgba(0,0,0,.08)", px: 2 }}
