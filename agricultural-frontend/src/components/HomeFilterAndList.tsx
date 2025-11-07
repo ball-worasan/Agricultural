@@ -1,4 +1,3 @@
-// src/components/HomeFilterAndList.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -15,7 +14,7 @@ import MenuItem from "@mui/material/MenuItem";
 import InputLabel from "@mui/material/InputLabel";
 import Divider from "@mui/material/Divider";
 
-import Image from "@mui/icons-material/Image";
+import ImageIcon from "@mui/icons-material/Image";
 import Place from "@mui/icons-material/Place";
 import AccessTime from "@mui/icons-material/AccessTime";
 
@@ -28,7 +27,7 @@ type Listing = {
   title: string;
   province: string;
   district: string;
-  postedAt: string; // YYYY-MM-DD
+  postedAt: string;
   price: number;
   unit: Unit;
   status: Status;
@@ -133,19 +132,21 @@ function StatusRibbon({ status }: { status: Status }) {
         zIndex: 1,
         pointerEvents: "none",
       }}
+      aria-hidden
     >
       {label}
     </Box>
   );
 }
 
-/** ---- แถวรายการ (ปรับขนาดกริด + ฟอนต์) ---- */
+/** ---- แถวรายการ ---- */
 function ListingRow({ it }: { it: Listing }) {
   return (
     <Paper
       component={Link}
       href={`/listing/${it.id}`}
       elevation={0}
+      className="card-hover"
       sx={{
         p: { xs: 1.25, sm: 1.75, md: 2 },
         border: 1,
@@ -153,10 +154,10 @@ function ListingRow({ it }: { it: Listing }) {
         borderRadius: 1.5,
         display: "grid",
         gridTemplateColumns: {
-          xs: "100px 1fr", // mobile
-          sm: "140px 1fr 160px", // tablet
-          md: "170px 1fr 200px", // small desktop
-          lg: "200px 1fr 240px", // large desktop
+          xs: "100px 1fr",
+          sm: "140px 1fr 160px",
+          md: "170px 1fr 200px",
+          lg: "200px 1fr 240px",
         },
         columnGap: { xs: 1.25, sm: 2, md: 2.25 },
         rowGap: 1,
@@ -164,14 +165,10 @@ function ListingRow({ it }: { it: Listing }) {
         textDecoration: "none",
         color: "inherit",
         position: "relative",
-        "&:hover": {
-          borderColor: "primary.main",
-          boxShadow: "0 6px 18px rgba(0,0,0,.06)",
-        },
         overflow: "hidden",
       }}
     >
-      {/* ซ้าย: รูป + ริบบอน */}
+      {/* รูป + ริบบอน */}
       <Box
         sx={{
           position: "relative",
@@ -210,13 +207,13 @@ function ListingRow({ it }: { it: Listing }) {
                 fontSize: 12,
               }}
             >
-              <Image fontSize="small" /> รูปภาพพื้นที่ให้เช่า
+              <ImageIcon fontSize="small" /> รูปภาพพื้นที่ให้เช่า
             </Box>
           )}
         </Box>
       </Box>
 
-      {/* กลาง: รายละเอียด */}
+      {/* รายละเอียด */}
       <Box
         sx={{
           minWidth: 0,
@@ -268,13 +265,13 @@ function ListingRow({ it }: { it: Listing }) {
                 whiteSpace: "nowrap",
                 fontSize: "inherit",
               }}
+              title={`อ.${it.district} จ.${it.province}`}
             >
               อ.{it.district} จ.{it.province}
             </Typography>
           </Box>
         </Box>
 
-        {/* ลงประกาศ (ดันชิดล่างคอลัมน์) */}
         <Box
           sx={{
             display: "flex",
@@ -292,7 +289,7 @@ function ListingRow({ it }: { it: Listing }) {
         </Box>
       </Box>
 
-      {/* ขวา: ราคา */}
+      {/* ราคา */}
       <Box
         sx={{
           justifySelf: { xs: "start", sm: "end" },
@@ -344,7 +341,7 @@ export default function HomeFilterAndList() {
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
-      {/* Box 1: ฟิลเตอร์ */}
+      {/* ฟิลเตอร์ */}
       <Paper
         elevation={0}
         sx={{
@@ -360,19 +357,14 @@ export default function HomeFilterAndList() {
           spacing={1.5}
           alignItems="center"
           sx={{
-            "& > .MuiGrid-item": { minWidth: 0 },
-            columnGap: { md: 2 }, // เว้นช่องไฟแนวนอนเล็กน้อยบนเดสก์ท็อป
+            "& > .MuiGrid2-root": { minWidth: 0 },
+            columnGap: { md: 2 },
           }}
         >
           {/* ซ้าย: จังหวัด / ราคา */}
           <Grid
             size={{ xs: 12, md: "auto" }}
-            sx={{
-              display: "flex",
-              gap: 1,
-              flexWrap: "wrap",
-              flexShrink: 0, // อย่าให้ยืด/หดจนดันขวา
-            }}
+            sx={{ display: "flex", gap: 1, flexWrap: "wrap", flexShrink: 0 }}
           >
             <FormControl
               size="small"
@@ -415,18 +407,13 @@ export default function HomeFilterAndList() {
             </FormControl>
           </Grid>
 
-          {/* เส้นแบ่ง: แสดงเฉพาะบนจอเล็ก เพื่อคั่นซ้าย-ขวาเมื่อเรียงเป็นแนวตั้ง */}
+          {/* เส้นแบ่งบนจอเล็ก */}
           <Grid size={{ xs: 12 }} sx={{ display: { xs: "block", md: "none" } }}>
             <Divider />
           </Grid>
 
-          {/* ขวา: เรียงตาม (ดันไปชิดขวาบน md+) */}
-          <Grid
-            size={{ xs: 12, md: "auto" }}
-            sx={{
-              ml: { md: "auto" }, // ดันไปขวา
-            }}
-          >
+          {/* ขวา: เรียงตาม */}
+          <Grid size={{ xs: 12, md: "auto" }} sx={{ ml: { md: "auto" } }}>
             <Box
               sx={{
                 display: "flex",
@@ -466,7 +453,7 @@ export default function HomeFilterAndList() {
         </Grid>
       </Paper>
 
-      {/* Box 2: รายการ */}
+      {/* รายการ */}
       <Box sx={{ display: "grid", gap: { xs: 1, sm: 1.25, md: 1.5 } }}>
         {data.length === 0 ? (
           <Paper

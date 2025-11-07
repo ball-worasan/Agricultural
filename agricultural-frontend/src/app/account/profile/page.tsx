@@ -80,7 +80,6 @@ export default function ProfilePage() {
     const fd = new FormData(e.currentTarget);
     const payload = {
       fullName: String(fd.get("fullName") ?? "").trim(),
-      username: String(fd.get("username") ?? "").trim(),
       address: String(fd.get("address") ?? "").trim(),
       phone: String(fd.get("phone") ?? "").trim(),
     };
@@ -192,14 +191,11 @@ export default function ProfilePage() {
                       label="ชื่อผู้ใช้"
                       name="username"
                       autoComplete="username"
-                      required
                       fullWidth
                       value={profile?.username ?? ""}
-                      onChange={(e) =>
-                        setProfile((p) =>
-                          p ? { ...p, username: e.target.value } : p
-                        )
-                      }
+                      disabled
+                      InputProps={{ readOnly: true }}
+                      helperText="ชื่อผู้ใช้ไม่สามารถแก้ไขได้"
                     />
                   </Grid>
 

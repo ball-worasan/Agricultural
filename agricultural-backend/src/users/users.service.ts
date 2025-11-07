@@ -32,7 +32,7 @@ export class UsersService {
       typeof (user as any).toJSON === 'function'
         ? (user as any).toJSON()
         : user;
-    delete (obj as any).passwordHash;
+    delete obj.passwordHash;
     return obj;
   }
 

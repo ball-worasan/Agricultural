@@ -77,7 +77,7 @@ export class AuthController {
       password: dto.password,
     } as any);
     const token = await this.authService.signToken({
-      sub: (user as any)._id?.toString?.() ?? (user as any)['_id'],
+      sub: user._id?.toString?.() ?? user['_id'],
       username: user.username,
       email: user.email,
     });

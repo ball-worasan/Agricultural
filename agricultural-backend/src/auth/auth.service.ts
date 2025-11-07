@@ -46,11 +46,11 @@ export class AuthService {
   async login(identifier: string, password: string) {
     const user = await this.validateUser(identifier, password);
     const token = await this.signToken({
-      sub: (user as any)._id?.toString?.() ?? user['_id'],
+      sub: user._id?.toString?.() ?? user['_id'],
       username: user.username,
       email: user.email,
     });
-    this.logger.log(`login issued token (sub=${(user as any)._id})`);
+    this.logger.log(`login issued token (sub=${user._id})`);
     return { ok: true, user, token };
   }
 }

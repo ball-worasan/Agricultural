@@ -5,20 +5,19 @@ import Grid from "@mui/material/Grid";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
-import FormControl from "@mui/material/FormControl";
-import Select from "@mui/material/Select";
-import MenuItem from "@mui/material/MenuItem";
-import InputLabel from "@mui/material/InputLabel";
 import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
 import IconButton from "@mui/material/IconButton";
+import MenuItem from "@mui/material/MenuItem";
+
 import Search from "@mui/icons-material/Search";
 import PlaceIcon from "@mui/icons-material/Place";
 import CategoryIcon from "@mui/icons-material/Category";
 import PaidIcon from "@mui/icons-material/Paid";
 import Close from "@mui/icons-material/Close";
+
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 export default function SearchSection() {
   const router = useRouter();
@@ -29,26 +28,16 @@ export default function SearchSection() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const params = new URLSearchParams();
-    if (place) params.set("place", place);
+    if (place.trim()) params.set("place", place.trim());
     if (type) params.set("type", type);
     if (budget) params.set("budget", budget);
     router.push(`/reserve/list?${params.toString()}`);
   };
 
-  const fieldSx = {
-    "& .MuiOutlinedInput-root": {
-      bgcolor: "background.paper",
-      borderRadius: 2, // 16px
-      "& fieldset": { borderColor: "divider" },
-      "&:hover fieldset": { borderColor: "text.primary" },
-      "&.Mui-focused fieldset": {
-        borderColor: "primary.main",
-        boxShadow: (t: any) => `0 0 0 3px ${t.palette.action.focus}`,
-      },
-    },
-  };
-
-  const hasAny = !!(place || type || budget);
+  const hasAny = useMemo(
+    () => !!(place || type || budget),
+    [place, type, budget]
+  );
 
   const resetAll = () => {
     setPlace("");
@@ -56,6 +45,19 @@ export default function SearchSection() {
     setBudget("");
     router.push("/reserve/list");
   };
+
+  const fieldSx = {
+    "& .MuiOutlinedInput-root": {
+      bgcolor: "background.paper",
+      borderRadius: 2,
+      "& fieldset": { borderColor: "divider" },
+      "&:hover fieldset": { borderColor: "text.primary" },
+      "&.Mui-focused fieldset": {
+        borderColor: "primary.main",
+        boxShadow: (t: any) => `0 0 0 3px ${t.palette.action.focus}`,
+      },
+    },
+  } as const;
 
   return (
     <Paper
@@ -83,9 +85,15 @@ export default function SearchSection() {
         ค้นหาพื้นที่เช่า
       </Typography>
 
-      <Box component="form" onSubmit={handleSubmit}>
+      <Box
+        component="form"
+        onSubmit={handleSubmit}
+        role="search"
+        aria-label="ฟอร์มค้นหาพื้นที่เช่า"
+      >
         <Grid container spacing={{ xs: 1.5, md: 2 }} alignItems="end">
-          <Grid size={{ xs: 12, md: 6, lg: 5 }}>
+          {/* สถานที่ */}
+          <Grid size={{ xs: 1, md: 6, lg: 5 }}>
             <TextField
               fullWidth
               label="สถานที่"
@@ -111,55 +119,75 @@ export default function SearchSection() {
                   </InputAdornment>
                 ) : undefined,
               }}
+              inputProps={{ "aria-label": "สถานที่" }}
             />
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2.5 }}>
-            <FormControl fullWidth sx={fieldSx}>
-              <InputLabel id="type-label">ประเภท</InputLabel>
-              <Select
-                labelId="type-label"
-                label="ประเภท"
-                value={type}
-                onChange={(e) => setType(String(e.target.value))}
-                startAdornment={
-                  <InputAdornment position="start" sx={{ pl: 1 }}>
+          {/* ประเภท — ใช้ TextField select เพื่อรองรับ startAdornment ได้ง่าย */}
+          <Grid size={{ xs: 12, md: 6, lg: 2.5 }}>
+            <TextField
+              fullWidth
+              select
+              label="ประเภท"
+              value={type}
+              onChange={(e) => setType(String(e.target.value))}
+              sx={fieldSx}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start" sx={{ pl: 0.5 }}>
                     <CategoryIcon fontSize="small" />
                   </InputAdornment>
-                }
-              >
-                <MenuItem value="">เลือกประเภท</MenuItem>
-                <MenuItem value="office">สำนักงาน</MenuItem>
-                <MenuItem value="retail">ร้านค้า</MenuItem>
-                <MenuItem value="warehouse">คลังสินค้า</MenuItem>
-                <MenuItem value="event">งานอีเวนต์</MenuItem>
-              </Select>
-            </FormControl>
+                ),
+              }}
+              SelectProps={{
+                displayEmpty: true,
+                renderValue: (v) => (v ? (v as string) : "เลือกประเภท"),
+              }}
+              inputProps={{ "aria-label": "ประเภทพื้นที่" }}
+            >
+              <MenuItem value="">
+                <em>เลือกประเภท</em>
+              </MenuItem>
+              <MenuItem value="office">สำนักงาน</MenuItem>
+              <MenuItem value="retail">ร้านค้า</MenuItem>
+              <MenuItem value="warehouse">คลังสินค้า</MenuItem>
+              <MenuItem value="event">งานอีเวนต์</MenuItem>
+            </TextField>
           </Grid>
 
+          {/* งบประมาณ — ใช้ TextField select + ไอคอน */}
           <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2.5 }}>
-            <FormControl fullWidth sx={fieldSx}>
-              <InputLabel id="budget-label">งบประมาณ</InputLabel>
-              <Select
-                labelId="budget-label"
-                label="งบประมาณ"
-                value={budget}
-                onChange={(e) => setBudget(String(e.target.value))}
-                startAdornment={
-                  <InputAdornment position="start" sx={{ pl: 1 }}>
+            <TextField
+              fullWidth
+              select
+              label="งบประมาณ"
+              value={budget}
+              onChange={(e) => setBudget(String(e.target.value))}
+              sx={fieldSx}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start" sx={{ pl: 0.5 }}>
                     <PaidIcon fontSize="small" />
                   </InputAdornment>
-                }
-              >
-                <MenuItem value="">เลือกงบประมาณ</MenuItem>
-                <MenuItem value="0-10000">0 - 10,000 บาท</MenuItem>
-                <MenuItem value="10000-50000">10,000 - 50,000 บาท</MenuItem>
-                <MenuItem value="50000+">50,000+ บาท</MenuItem>
-              </Select>
-            </FormControl>
+                ),
+              }}
+              SelectProps={{
+                displayEmpty: true,
+                renderValue: (v) => (v ? (v as string) : "เลือกงบประมาณ"),
+              }}
+              inputProps={{ "aria-label": "ช่วงงบประมาณ" }}
+            >
+              <MenuItem value="">
+                <em>เลือกงบประมาณ</em>
+              </MenuItem>
+              <MenuItem value="0-10000">0 - 10,000 บาท</MenuItem>
+              <MenuItem value="10000-50000">10,000 - 50,000 บาท</MenuItem>
+              <MenuItem value="50000+">50,000+ บาท</MenuItem>
+            </TextField>
           </Grid>
 
-          <Grid size={{ xs: 12, md: 12, lg: 2 }}>
+          {/* ปุ่ม */}
+          <Grid size={{ xs: 12, lg: 6 }}>
             <Box sx={{ display: "flex", gap: 1 }}>
               <Button
                 type="submit"

@@ -2,7 +2,7 @@
 
 import { alpha, createTheme } from "@mui/material/styles";
 
-/** 🎨 Brand palette (เดิม) */
+/** 🎨 Brand palette */
 const forest = "#1C352D";
 const sage = "#A6B28B";
 const peach = "#F5C9B0";
@@ -24,7 +24,6 @@ export const glass = (opacity = 0.55) => ({
 
 const theme = createTheme({
   breakpoints: {
-    // ใช้ค่ามาตรฐาน + ย้ำเพื่ออ่านง่าย
     values: { xs: 0, sm: 600, md: 900, lg: 1200, xl: 1536 },
   },
   palette: {

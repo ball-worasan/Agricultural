@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ThemeRegistry from "./ThemeRegistry";
+import { AuthProvider } from "../contexts/AuthContext";
 
 export const metadata: Metadata = {
   title: "RentSpace - เช่าพื้นที่ออนไลน์",
@@ -16,9 +17,12 @@ export default function RootLayout({
     <html lang="th">
       <head>
         <meta name="emotion-insertion-point" content="" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>
-        <ThemeRegistry>{children}</ThemeRegistry>
+        <ThemeRegistry>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeRegistry>
       </body>
     </html>
   );

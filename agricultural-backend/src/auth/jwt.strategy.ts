@@ -19,6 +19,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: any) {
     // ไทย: ค่าที่จะไปอยู่ใน req.user
     this.logger.debug(`jwt validate (sub=${payload?.sub})`);
-    return { sub: payload.sub, username: payload.username, email: payload.email };
+    return {
+      sub: payload.sub,
+      username: payload.username,
+      email: payload.email,
+    };
   }
 }

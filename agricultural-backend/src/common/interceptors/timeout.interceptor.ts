@@ -19,7 +19,8 @@ export class TimeoutInterceptor implements NestInterceptor {
     const req = http.getRequest<Request>();
     const res = http.getResponse<Response>();
 
-    const contentType = (res.getHeader && (res.getHeader('Content-Type') as string)) || '';
+    const contentType =
+      (res.getHeader && (res.getHeader('Content-Type') as string)) || '';
     const isSSE =
       contentType === 'text/event-stream' ||
       req.headers.accept?.includes('text/event-stream');
@@ -39,7 +40,9 @@ export class TimeoutInterceptor implements NestInterceptor {
       }),
       catchError((err) => {
         if (err instanceof TimeoutError) {
-          return throwError(() => new RequestTimeoutException('Request timed out'));
+          return throwError(
+            () => new RequestTimeoutException('Request timed out'),
+          );
         }
         return throwError(() => err);
       }),

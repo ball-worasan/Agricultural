@@ -17,6 +17,8 @@
     "@mui/material": "^7.3.1",
     "@mui/styled-engine-sc": "^7.3.1",
     "@mui/x-date-pickers": "^8.15.0",
+    "@types/axios": "^0.14.4",
+    "axios": "^1.13.1",
     "cookie-parser": "^1.4.7",
     "dayjs": "^1.11.18",
     "react": "19.1.0",

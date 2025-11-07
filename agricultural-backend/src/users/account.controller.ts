@@ -72,7 +72,7 @@ export class AccountController {
     }
 
     // โหลดโปรไฟล์เพื่อเช็คคูลดาวน์
-    const user = (await this.usersService.findById(uid)) as any;
+    const user = await this.usersService.findById(uid);
     const last = user.passwordChangedAt
       ? new Date(user.passwordChangedAt).getTime()
       : 0;

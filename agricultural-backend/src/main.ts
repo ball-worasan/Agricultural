@@ -142,7 +142,7 @@ async function bootstrap() {
 
   setupSwagger(app);
 
-  const port = cfg.get<number>('port', 3000);
+  const port = cfg.get<number>('port', 4000);
   await app.listen(port);
   const url = await app.getUrl();
   console.log(`Swagger UI: ${url}/docs`);
@@ -150,7 +150,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error('Bootstrap error:', err);
   process.exit(1);
 });

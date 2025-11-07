@@ -1,4 +1,3 @@
-// src/components/Header.tsx
 "use client";
 
 import {
@@ -23,11 +22,21 @@ import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
+import Divider from "@mui/material/Divider";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Container from "@mui/material/Container";
+import useScrollTrigger from "@mui/material/useScrollTrigger";
+import Paper from "@mui/material/Paper";
 
 import AccountCircle from "@mui/icons-material/AccountCircle";
 import Business from "@mui/icons-material/Business";
 import Search from "@mui/icons-material/Search";
 import Close from "@mui/icons-material/Close";
+import AddBusiness from "@mui/icons-material/AddBusiness";
+import ReceiptLong from "@mui/icons-material/ReceiptLong";
+import PersonOutline from "@mui/icons-material/PersonOutline";
+import ExitToApp from "@mui/icons-material/ExitToApp";
+import HomeWork from "@mui/icons-material/HomeWork";
 
 /* =========================
  * Types & Small Utilities
@@ -69,9 +78,7 @@ const deleteCookie = (name: string) => {
   )}=; Path=/; Max-Age=0; SameSite=Lax`;
 };
 
-/* ================
- * Header Component
- * ==============*/
+/* ================ */
 export default function Header() {
   const router = useRouter();
 
@@ -91,6 +98,9 @@ export default function Header() {
   // ---- Search ----
   const [keyword, setKeyword] = useState("");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // ---- Elevation on scroll ----
+  const elevate = useScrollTrigger({ disableHysteresis: true, threshold: 2 });
 
   /* =========================
    * Effects: sync auth by cookie
@@ -114,17 +124,14 @@ export default function Header() {
       setUser(valid ? u : null);
     };
 
-    // initial
     syncAuth();
 
-    // refresh on focus / visibility
     const onFocus = () => syncAuth();
     const onVisible = () =>
       document.visibilityState === "visible" && syncAuth();
 
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
-
     return () => {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
@@ -160,7 +167,7 @@ export default function Header() {
     searchInputRef.current?.focus();
   }, []);
 
-  // Keyboard shortcut: press "/" to focus search (like GitHub)
+  // Keyboard shortcut: press "/" to focus search
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (
@@ -181,7 +188,7 @@ export default function Header() {
   }, []);
 
   /* =========================
-   * Menu items (arrays only)
+   * Menu items
    * =======================*/
   const accountMenuItems = useMemo(() => {
     if (!isLoggedIn) {
@@ -208,19 +215,53 @@ export default function Header() {
       <MenuItem
         key="my-reserve"
         component={Link}
-        href="/reserve/list"
+        href="/"
         onClick={handleCloseAccount}
       >
-        รายการเช่าพื้นที่
+        <ListItemIcon>
+          <HomeWork fontSize="small" />
+        </ListItemIcon>
+        รายการพื้นที่เช่า
       </MenuItem>,
+
+      <MenuItem
+        key="host-spaces"
+        component={Link}
+        href="/my/listings"
+        onClick={handleCloseAccount}
+      >
+        <ListItemIcon>
+          <AddBusiness fontSize="small" />
+        </ListItemIcon>
+        พื้นที่ปล่อยเช่า
+      </MenuItem>,
+
+      <MenuItem
+        key="rent-history"
+        component={Link}
+        href="/account/rentals"
+        onClick={handleCloseAccount}
+      >
+        <ListItemIcon>
+          <ReceiptLong fontSize="small" />
+        </ListItemIcon>
+        ประวัติการเช่าพื้นที่
+      </MenuItem>,
+
+      <Divider key="div-1" sx={{ my: 0.5 }} />,
+
       <MenuItem
         key="profile"
         component={Link}
         href="/account/profile"
         onClick={handleCloseAccount}
       >
+        <ListItemIcon>
+          <PersonOutline fontSize="small" />
+        </ListItemIcon>
         ข้อมูลผู้ใช้
       </MenuItem>,
+
       <MenuItem
         key="logout"
         onClick={() => {
@@ -229,159 +270,183 @@ export default function Header() {
         }}
         sx={{ color: "error.main", fontWeight: 700 }}
       >
+        <ListItemIcon sx={{ color: "error.main" }}>
+          <ExitToApp fontSize="small" />
+        </ListItemIcon>
         ออกจากระบบ
       </MenuItem>,
     ];
   }, [handleCloseAccount, handleLogout, isLoggedIn]);
 
-  /* ============
-   * Render
-   * ===========*/
+  /* ============ Render ===========*/
   return (
-    <AppBar position="sticky" elevation={0}>
-      <Toolbar
-        sx={{
-          maxWidth: 1400,
-          mx: "auto",
-          width: "100%",
-          gap: 1.5,
-          minHeight: { xs: 68, sm: 76 },
-          px: { xs: 1, sm: 2 },
-        }}
-      >
-        {/* Left: Logo */}
-        <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-          <Business
-            sx={{ mr: 1.2, fontSize: 28, color: "primary.contrastText" }}
-          />
-          <Typography
-            variant="h6"
-            component={Link}
-            href="/"
-            sx={{
-              textDecoration: "none",
-              fontWeight: 900,
-              color: "inherit",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            RentSpace
-          </Typography>
-        </Box>
-
-        {/* Center: Search */}
-        <Box
-          component="form"
-          onSubmit={onSearchSubmit}
+    <AppBar
+      position="sticky"
+      elevation={elevate ? 6 : 0}
+      sx={{
+        backgroundImage: (theme) =>
+          `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+        borderBottom: "1px solid rgba(0,0,0,.06)",
+      }}
+    >
+      <Container maxWidth="lg" disableGutters>
+        <Toolbar
           sx={{
-            flex: 1,
-            mx: { xs: 1, md: 2 },
-            display: "flex",
-            justifyContent: "center", // จัดกลางในแนวนอน
-            minWidth: 0,
+            mx: "auto",
+            width: "100%",
+            gap: 1.5,
+            minHeight: { xs: 68, sm: 76 },
+            px: { xs: 1, sm: 2 },
           }}
-          role="search"
-          aria-label="ค้นหาพื้นที่เช่า"
         >
-          <Box
-            sx={{
-              width: "100%",
-              maxWidth: { xs: 420, sm: 560, md: 720 },
-            }}
-          >
-            <TextField
-              inputRef={searchInputRef}
-              fullWidth
-              size="medium"
-              placeholder="ค้นหาพื้นที่เช่า…"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search />
-                  </InputAdornment>
-                ),
-                endAdornment: keyword ? (
-                  <InputAdornment position="end">
-                    <Tooltip title="ล้างคำค้นหา">
-                      <IconButton
-                        aria-label="ล้างคำค้นหา"
-                        edge="end"
-                        onClick={clearKeyword}
-                      >
-                        <Close />
-                      </IconButton>
-                    </Tooltip>
-                  </InputAdornment>
-                ) : undefined,
-              }}
+          {/* Left: Logo */}
+          <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+            <Paper
+              elevation={0}
               sx={{
-                "& .MuiOutlinedInput-root": {
-                  height: 40,
-                  borderRadius: 9999,
-                  backgroundColor: "transparent",
-                  "& fieldset": { borderColor: "rgba(255,255,255,0.6)" },
-                  "&:hover fieldset": { borderColor: "rgba(255,255,255,0.85)" },
-                  "&.Mui-focused fieldset": {
-                    borderColor: "#A6B28B",
-                    boxShadow: "none",
-                  },
-                },
-                "& .MuiInputBase-input": { color: "primary.contrastText" },
-                "& .MuiInputAdornment-root": { color: "primary.contrastText" },
+                mr: 1.2,
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                display: "grid",
+                placeItems: "center",
+                bgcolor: "rgba(255,255,255,.16)",
+                border: "1px solid rgba(255,255,255,.24)",
               }}
-              aria-label="ช่องค้นหาพื้นที่เช่า"
-            />
+            >
+              <Business sx={{ fontSize: 20, color: "primary.contrastText" }} />
+            </Paper>
+            <Typography
+              variant="h6"
+              component={Link}
+              href="/"
+              sx={{
+                textDecoration: "none",
+                fontWeight: 900,
+                color: "primary.contrastText",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                letterSpacing: 0.2,
+              }}
+            >
+              RentSpace
+            </Typography>
           </Box>
-        </Box>
 
-        {/* Right: Account */}
-        <Box sx={{ display: "flex", alignItems: "center" }}>
-          <Button
-            variant="outlined"
-            startIcon={<AccountCircle />}
-            onClick={handleOpenAccount}
-            aria-haspopup="menu"
-            aria-controls={accountMenuId}
-            aria-expanded={accountOpen ? "true" : undefined}
+          {/* Center: Search */}
+          <Box
+            component="form"
+            onSubmit={onSearchSubmit}
             sx={{
-              borderColor: "background.default",
-              color: "primary.contrastText",
-              "&:hover": {
-                borderColor: "#A6B28B",
-                color: "#A6B28B",
-                backgroundColor: "rgba(204, 204, 204, 0.1)",
-              },
-              minWidth: { xs: 44, sm: 120 },
-              px: { xs: 1, sm: 2 },
+              flex: 1,
+              mx: { xs: 1, md: 2 },
+              display: "flex",
+              justifyContent: "center",
+              minWidth: 0,
             }}
+            role="search"
+            aria-label="ค้นหาพื้นที่เช่า"
           >
-            <Box sx={{ display: { xs: "none", sm: "inline" } }}>
-              {isLoggedIn ? user?.username ?? "บัญชี" : "บัญชี"}
+            <Box
+              sx={{ width: "100%", maxWidth: { xs: 420, sm: 560, md: 720 } }}
+            >
+              <TextField
+                inputRef={searchInputRef}
+                fullWidth
+                size="medium"
+                placeholder="ค้นหาพื้นที่เช่า…"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search />
+                    </InputAdornment>
+                  ),
+                  endAdornment: keyword ? (
+                    <InputAdornment position="end">
+                      <Tooltip title="ล้างคำค้นหา">
+                        <IconButton
+                          aria-label="ล้างคำค้นหา"
+                          edge="end"
+                          onClick={clearKeyword}
+                        >
+                          <Close />
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ) : undefined,
+                }}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    height: 42,
+                    borderRadius: 9999,
+                    bgcolor: "rgba(255,255,255,.08)",
+                    "& fieldset": { borderColor: "rgba(255,255,255,0.36)" },
+                    "&:hover fieldset": {
+                      borderColor: "rgba(255,255,255,0.6)",
+                    },
+                    "&.Mui-focused fieldset": {
+                      borderColor: "#A6B28B",
+                      boxShadow: "none",
+                    },
+                  },
+                  "& .MuiInputBase-input": { color: "primary.contrastText" },
+                  "& .MuiInputAdornment-root": {
+                    color: "primary.contrastText",
+                  },
+                }}
+                aria-label="ช่องค้นหาพื้นที่เช่า"
+              />
             </Box>
-          </Button>
+          </Box>
 
-          <Menu
-            id={accountMenuId}
-            anchorEl={accountEl}
-            open={accountOpen}
-            onClose={handleCloseAccount}
-            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-            transformOrigin={{ vertical: "top", horizontal: "right" }}
-            PaperProps={{
-              elevation: 8,
-              sx: { borderRadius: 2, minWidth: 220 },
-            }}
-            disableScrollLock
-            keepMounted
-          >
-            {accountMenuItems}
-          </Menu>
-        </Box>
-      </Toolbar>
+          {/* Right: Account */}
+          <Box sx={{ display: "flex", alignItems: "center" }}>
+            <Button
+              variant="outlined"
+              startIcon={<AccountCircle />}
+              onClick={handleOpenAccount}
+              aria-haspopup="menu"
+              aria-controls={accountMenuId}
+              aria-expanded={accountOpen ? "true" : undefined}
+              sx={{
+                borderColor: "rgba(255,255,255,.36)",
+                color: "primary.contrastText",
+                "&:hover": {
+                  borderColor: "#E8FFD7",
+                  color: "#E8FFD7",
+                  backgroundColor: "rgba(255, 255, 255, 0.08)",
+                },
+                minWidth: { xs: 44, sm: 120 },
+                px: { xs: 1, sm: 2 },
+              }}
+            >
+              <Box sx={{ display: { xs: "none", sm: "inline" } }}>
+                {isLoggedIn ? user?.username ?? "บัญชี" : "บัญชี"}
+              </Box>
+            </Button>
+
+            <Menu
+              id={accountMenuId}
+              anchorEl={accountEl}
+              open={accountOpen}
+              onClose={handleCloseAccount}
+              anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+              transformOrigin={{ vertical: "top", horizontal: "right" }}
+              PaperProps={{
+                elevation: 8,
+                sx: { borderRadius: 2, minWidth: 240, py: 0.5 },
+              }}
+              disableScrollLock
+              keepMounted
+            >
+              {accountMenuItems}
+            </Menu>
+          </Box>
+        </Toolbar>
+      </Container>
     </AppBar>
   );
 }

@@ -1,7 +1,7 @@
 name: agricultural-dev
 
 services:
-  backend:
+  agricultural-backend:
     build:
       context: ./agricultural-backend
     container_name: agricultural-backend
@@ -12,24 +12,26 @@ services:
     volumes:
       - ./agricultural-backend:/app
       - backend_node_modules:/app/node_modules
+      - ./agricultural-backend/src:/app/src
+      - ./agricultural-backend/package.json:/app/package.json
+      - ./agricultural-backend/tsconfig.json:/app/tsconfig.json
     command:
       - sh
       - -lc
       - |
         corepack enable
         pnpm -v
-        # ติดตั้ง deps ถ้ายังไม่มี binary หลัก
         if [ ! -x node_modules/.bin/nest ] && [ ! -x node_modules/.bin/ts-node ]; then
           pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
         fi
-        # ใส่ swagger ถ้ายังไม่มี (กัน TS2307)
         node -e "const d=require('./package.json').dependencies||{};process.exit(d['@nestjs/swagger']?0:1)" \
         || pnpm add @nestjs/swagger swagger-ui-express
-        exec pnpm start:dev
+        pnpm add -D ts-node-dev
+        exec pnpm ts-node-dev --respawn --transpile-only src/main.ts
     working_dir: /app
     depends_on:
-      mongodb:
-        condition: service_healthy
+      agricultural-mongodb:
+        condition: service_healthy # <— แก้ให้ตรงชื่อ service
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -43,17 +45,13 @@ services:
       retries: 20
       start_period: 60s
     ulimits:
-      nofile:
-        soft: 1048576
-        hard: 1048576
+      nofile: { soft: 1048576, hard: 1048576 }
     logging:
       driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: { max-size: "10m", max-file: "3" }
     networks: [appnet]
 
-  frontend:
+  agricultural-frontend:
     build:
       context: ./agricultural-frontend
     container_name: agricultural-frontend
@@ -64,6 +62,9 @@ services:
     volumes:
       - ./agricultural-frontend:/app
       - frontend_node_modules:/app/node_modules
+      - ./agricultural-frontend/src:/app/src
+      - ./agricultural-frontend/package.json:/app/package.json
+      - ./agricultural-frontend/tsconfig.json:/app/tsconfig.json
     command:
       - sh
       - -lc
@@ -73,37 +74,42 @@ services:
         if [ ! -x node_modules/.bin/next ]; then
           pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
         fi
-        exec pnpm dev -p 3000 --hostname 0.0.0.0   # ← ไม่มี --turbopack
-    working_dir: /app
+        exec pnpm dev -p 3000 --hostname 0.0.0.0
     depends_on:
-      backend:
+      agricultural-backend: # <— แก้ให้ตรงชื่อ service
         condition: service_started
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'node -e "require(''http'').get(''http://localhost:3000'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-    ulimits:
-      nofile:
-        soft: 1048576
-        hard: 1048576
     logging:
       driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: { max-size: "10m", max-file: "3" }
     networks: [appnet]
 
-  mongodb:
+  agricultural-minio:
+    image: minio/minio:latest
+    container_name: agricultural-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [appnet]
+
+  agricultural-mongodb:
     image: mongo:8.0
-    container_name: mongodb
+    container_name: agricultural-mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -128,15 +134,14 @@ services:
       start_period: 20s
     logging:
       driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: { max-size: "10m", max-file: "3" }
     networks: [appnet]
 
 volumes:
   backend_node_modules:
   frontend_node_modules:
   mongo_data:
+  minio_data:
 
 networks:
   appnet:
