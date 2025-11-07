@@ -1,0 +1,84 @@
+name: agricultural-prod
+
+services:
+  backend:
+    build:
+      context: ./agricultural-backend
+    image: agricultural-backend:prod
+    environment:
+      NODE_ENV: production
+    env_file:
+      - ./agricultural-backend/.env.docker
+    ports:
+      - "4000:4000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD","curl","-f","http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [appnet]
+
+  frontend:
+    build:
+      context: ./agricultural-frontend
+    image: agricultural-frontend:prod
+    environment:
+      NODE_ENV: production
+    env_file:
+      - ./agricultural-frontend/.env.docker
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [appnet]
+
+  mongo:
+    image: mongo:8.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+      TZ: Asia/Bangkok
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD","mongosh","--quiet","--eval","db.adminCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [appnet]
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD","curl","-f","http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [appnet]
+
+volumes:
+  mongo_data:
+  minio_data:
+
+networks:
+  appnet:
+    driver: bridge

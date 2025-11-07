@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import Container from "@mui/material/Container";
 import Paper from "@mui/material/Paper";
@@ -10,6 +11,7 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import Alert from "@mui/material/Alert";
 import dayjs from "dayjs";
+import { getListingById } from "@/data/listings";
 
 type ReserveDraft = {
   listingId: string;
@@ -25,16 +27,38 @@ type ReserveDraft = {
 };
 
 export default function CheckoutSummary() {
+  const params = useParams();
+  const listingId = params.id as string;
+  
   const [draft, setDraft] = useState<ReserveDraft | null>(null);
 
   useEffect(() => {
+    if (!listingId) return;
+
     try {
       const raw = sessionStorage.getItem("reserveDraft");
-      setDraft(raw ? (JSON.parse(raw) as ReserveDraft) : null);
+      if (raw) {
+        setDraft(JSON.parse(raw) as ReserveDraft);
+        return;
+      }
+
+      // ถ้าไม่มี draft ให้สร้างจาก listings.ts
+      const listing = getListingById(listingId);
+      if (listing) {
+        const newDraft: ReserveDraft = {
+          listingId: listing.id,
+          title: listing.title,
+          locationText: `อ.${listing.district} จ.${listing.province}`,
+          price: listing.price,
+          unit: listing.unit as "วัน" | "เดือน" | "ปี",
+          image: listing.image,
+        };
+        setDraft(newDraft);
+      }
     } catch {
       setDraft(null);
     }
-  }, []);
+  }, [listingId]);
 
   if (!draft) {
     return (

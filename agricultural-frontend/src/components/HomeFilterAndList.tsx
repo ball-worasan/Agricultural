@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 
 import Container from "@mui/material/Container";
@@ -13,66 +13,96 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import InputLabel from "@mui/material/InputLabel";
 import Divider from "@mui/material/Divider";
+import Chip from "@mui/material/Chip";
 
 import ImageIcon from "@mui/icons-material/Image";
 import Place from "@mui/icons-material/Place";
 import AccessTime from "@mui/icons-material/AccessTime";
+import LocalOfferIcon from "@mui/icons-material/LocalOffer";
+
+import { LISTINGS, type Listing, type Status } from "@/data/listings";
 
 /** ---- mock data ---- */
-type Unit = "ปี" | "เดือน" | "วัน";
-type Status = "available" | "reserved";
-
-type Listing = {
-  id: string;
-  title: string;
-  province: string;
-  district: string;
-  postedAt: string;
-  price: number;
-  unit: Unit;
-  status: Status;
-  image?: string;
-};
-
-const LISTINGS: Listing[] = [
-  {
-    id: "101",
-    title: "ปล่อยเช่าที่ดินเปล่า ต.ภูสิงห์ อ.สหัสขันธ์ ติดเขื่อนลำปาว",
-    province: "กาฬสินธุ์",
-    district: "สหัสขันธ์",
-    postedAt: "2025-09-08",
-    price: 35000,
-    unit: "ปี",
-    status: "available",
-  },
-  {
-    id: "102",
-    title: "ปล่อยเช่าที่ดินเปล่า ต.ภูสิงห์ อ.สหัสขันธ์",
-    province: "กาฬสินธุ์",
-    district: "สหัสขันธ์",
-    postedAt: "2025-09-08",
-    price: 28000,
-    unit: "ปี",
-    status: "reserved",
-  },
-  {
-    id: "103",
-    title: "สำนักงานใจกลางเมือง",
-    province: "กรุงเทพมหานคร",
-    district: "ปทุมวัน",
-    postedAt: "2025-08-30",
-    price: 25000,
-    unit: "เดือน",
-    status: "available",
-  },
-];
-
 const PROVINCES = [
   "ทั้งหมด",
   "กรุงเทพมหานคร",
-  "เชียงใหม่",
-  "ภูเก็ต",
+  "กระบี่",
+  "กาญจนบุรี",
   "กาฬสินธุ์",
+  "กำแพงเพชร",
+  "ขอนแก่น",
+  "จันทบุรี",
+  "จุฬาลงกรณ์",
+  "ฉะเชิงเทรา",
+  "ชลบุรี",
+  "ชัยนาท",
+  "ชัยภูมิ",
+  "ชุมพร",
+  "เชียงราย",
+  "เชียงใหม่",
+  "ตรัง",
+  "ตราด",
+  "ตาก",
+  "นครนายก",
+  "นครปฐม",
+  "นครพนม",
+  "นครราชสีมา",
+  "นครศรีธรรมราช",
+  "นครสวรรค์",
+  "นนทบุรี",
+  "นราธิวาส",
+  "น่าน",
+  "บึงกาฬ",
+  "บุรีรัมย์",
+  "ปทุมธานี",
+  "ประจวบคีรีขันธ์",
+  "ปราจีนบุรี",
+  "ปัตตานี",
+  "พระนครศรีอยุธยา",
+  "พะเยา",
+  "พังงา",
+  "พัทลุง",
+  "พิจิตร",
+  "พิษณุโลก",
+  "เพชรบุรี",
+  "เพชรบูรณ์",
+  "แพร่",
+  "ภูเก็ต",
+  "มหาสารคาม",
+  "มุกดาหาร",
+  "แม่ฮ่องสอน",
+  "ยโสธร",
+  "ยะลา",
+  "ร้อยเอ็ด",
+  "ระนอง",
+  "ระยอง",
+  "ราชบุรี",
+  "ลพบุรี",
+  "ลำปาง",
+  "ลำพูน",
+  "เลย",
+  "ศรีสะเกษ",
+  "สกลนคร",
+  "สงขลา",
+  "สตูล",
+  "สมุทรปราการ",
+  "สมุทรสงคราม",
+  "สมุทรสาคร",
+  "สระแก้ว",
+  "สระบุรี",
+  "สิงห์บุรี",
+  "สุโขทัย",
+  "สุพรรณบุรี",
+  "สุราษฎร์ธานี",
+  "สุรินทร์",
+  "หนองคาย",
+  "หนองบัวลำภู",
+  "อ่างทอง",
+  "อำนาจเจริญ",
+  "อุดรธานี",
+  "อุตรดิตถ์",
+  "อุทัยธานี",
+  "อุบลราชธานี",
 ];
 const PRICE_FILTERS = [
   { value: "all", label: "ทั้งหมด" },
@@ -86,6 +116,8 @@ const SORTS = [
   { value: "priceAsc", label: "ราคาต่ำไปสูง" },
   { value: "priceDesc", label: "ราคาสูงไปต่ำ" },
 ] as const;
+
+const TAGS = ["ทำนา", "ทำไร่", "ทำสวน", "ฟาร์ม"] as const;
 
 /** ---- utils ---- */
 function withinPriceRange(
@@ -141,10 +173,12 @@ function StatusRibbon({ status }: { status: Status }) {
 
 /** ---- แถวรายการ ---- */
 function ListingRow({ it }: { it: Listing }) {
+  const isReserved = it.status === "reserved";
+
   return (
     <Paper
-      component={Link}
-      href={`/listing/${it.id}`}
+      component={isReserved ? "div" : Link}
+      href={isReserved ? undefined : `/listing/${it.id}`}
       elevation={0}
       className="card-hover"
       sx={{
@@ -166,6 +200,14 @@ function ListingRow({ it }: { it: Listing }) {
         color: "inherit",
         position: "relative",
         overflow: "hidden",
+        cursor: isReserved ? "not-allowed" : "pointer",
+        opacity: isReserved ? 0.7 : 1,
+        "&:hover": isReserved
+          ? {}
+          : {
+              borderColor: "primary.main",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+            },
       }}
     >
       {/* รูป + ริบบอน */}
@@ -272,6 +314,25 @@ function ListingRow({ it }: { it: Listing }) {
           </Box>
         </Box>
 
+        {/* Tags */}
+        {it.tags && it.tags.length > 0 && (
+          <Box sx={{ display: "flex", gap: 0.5, mb: 0.5, flexWrap: "wrap" }}>
+            {it.tags.map((tag) => (
+              <Chip
+                key={tag}
+                label={tag}
+                size="small"
+                icon={<LocalOfferIcon />}
+                sx={{
+                  height: 20,
+                  fontSize: { xs: 10.5, sm: 11 },
+                  "& .MuiChip-icon": { fontSize: 14 },
+                }}
+              />
+            ))}
+          </Box>
+        )}
+
         <Box
           sx={{
             display: "flex",
@@ -316,16 +377,52 @@ function ListingRow({ it }: { it: Listing }) {
 
 /** ---- กล่องกรอง + กล่องรายการ ---- */
 export default function HomeFilterAndList() {
+  const [searchTitle, setSearchTitle] = useState<string>("");
   const [province, setProvince] = useState<string>("ทั้งหมด");
   const [price, setPrice] =
     useState<(typeof PRICE_FILTERS)[number]["value"]>("all");
+  const [selectedTag, setSelectedTag] = useState<string>("ทั้งหมด");
   const [sortBy, setSortBy] =
     useState<(typeof SORTS)[number]["value"]>("newest");
 
+  // Listen for search events from Header
+  useEffect(() => {
+    const handleSearch = (event: Event) => {
+      const customEvent = event as CustomEvent<{ keyword: string }>;
+      setSearchTitle(customEvent.detail.keyword);
+    };
+
+    window.addEventListener("searchListings", handleSearch);
+    return () => window.removeEventListener("searchListings", handleSearch);
+  }, []);
+
   const data = useMemo(() => {
-    let arr = LISTINGS.filter((x) =>
-      province === "ทั้งหมด" ? true : x.province === province
-    ).filter((x) => withinPriceRange(x.price, price));
+    let arr = LISTINGS.filter((x) => {
+      // Filter by search title
+      if (
+        searchTitle.trim() &&
+        !x.title.toLowerCase().includes(searchTitle.toLowerCase().trim())
+      ) {
+        return false;
+      }
+      // Filter by province
+      if (province !== "ทั้งหมด" && x.province !== province) {
+        return false;
+      }
+      // Filter by price
+      if (!withinPriceRange(x.price, price)) {
+        return false;
+      }
+      // Filter by tag
+      if (selectedTag !== "ทั้งหมด") {
+        if (!x.tags || !x.tags.includes(selectedTag)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Sort
     switch (sortBy) {
       case "priceAsc":
         arr = [...arr].sort((a, b) => a.price - b.price);
@@ -337,10 +434,14 @@ export default function HomeFilterAndList() {
         arr = [...arr].sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1));
     }
     return arr;
-  }, [province, price, sortBy]);
+  }, [searchTitle, province, price, selectedTag, sortBy]);
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
+    <Container
+      maxWidth="lg"
+      sx={{ py: { xs: 3, md: 5 } }}
+      id="listings-section"
+    >
       {/* ฟิลเตอร์ */}
       <Paper
         elevation={0}
@@ -361,7 +462,7 @@ export default function HomeFilterAndList() {
             columnGap: { md: 2 },
           }}
         >
-          {/* ซ้าย: จังหวัด / ราคา */}
+          {/* ซ้าย: จังหวัด / ราคา / แท็ก */}
           <Grid
             size={{ xs: 12, md: "auto" }}
             sx={{ display: "flex", gap: 1, flexWrap: "wrap", flexShrink: 0 }}
@@ -401,6 +502,27 @@ export default function HomeFilterAndList() {
                 {PRICE_FILTERS.map((p) => (
                   <MenuItem key={p.value} value={p.value}>
                     {p.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl
+              size="small"
+              sx={{ minWidth: 140, flex: { xs: 1, sm: 0 } }}
+            >
+              <InputLabel id="tag">ประเภท</InputLabel>
+              <Select
+                labelId="tag"
+                label="ประเภท"
+                value={selectedTag}
+                onChange={(e) => setSelectedTag(String(e.target.value))}
+                MenuProps={{ disableScrollLock: true }}
+              >
+                <MenuItem value="ทั้งหมด">ทั้งหมด</MenuItem>
+                {TAGS.map((tag) => (
+                  <MenuItem key={tag} value={tag}>
+                    {tag}
                   </MenuItem>
                 ))}
               </Select>

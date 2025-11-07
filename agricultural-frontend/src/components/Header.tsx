@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
@@ -81,6 +81,8 @@ const deleteCookie = (name: string) => {
 /* ================ */
 export default function Header() {
   const router = useRouter();
+  const pathname = usePathname();
+  const isHomePage = pathname === "/";
 
   // ---- Auth state ----
   const [user, setUser] = useState<UserLite | null>(null);
@@ -155,11 +157,21 @@ export default function Header() {
   const onSearchSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      const params = new URLSearchParams();
-      if (keyword.trim()) params.set("q", keyword.trim());
-      router.push(`/reserve/list?${params.toString()}`);
+      if (!keyword.trim()) return;
+
+      // Scroll to listings section on homepage
+      const listingsSection = document.getElementById("listings-section");
+      if (listingsSection) {
+        listingsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      // Trigger custom event for filtering
+      const event = new CustomEvent("searchListings", {
+        detail: { keyword: keyword.trim() },
+      });
+      window.dispatchEvent(event);
     },
-    [keyword, router]
+    [keyword]
   );
 
   const clearKeyword = useCallback(() => {
@@ -334,73 +346,78 @@ export default function Header() {
             </Typography>
           </Box>
 
-          {/* Center: Search */}
-          <Box
-            component="form"
-            onSubmit={onSearchSubmit}
-            sx={{
-              flex: 1,
-              mx: { xs: 1, md: 2 },
-              display: "flex",
-              justifyContent: "center",
-              minWidth: 0,
-            }}
-            role="search"
-            aria-label="ค้นหาพื้นที่เช่า"
-          >
+          {/* Center: Search - Only on homepage */}
+          {isHomePage && (
             <Box
-              sx={{ width: "100%", maxWidth: { xs: 420, sm: 560, md: 720 } }}
+              component="form"
+              onSubmit={onSearchSubmit}
+              sx={{
+                flex: 1,
+                mx: { xs: 1, md: 2 },
+                display: "flex",
+                justifyContent: "center",
+                minWidth: 0,
+              }}
+              role="search"
+              aria-label="ค้นหาพื้นที่เช่า"
             >
-              <TextField
-                inputRef={searchInputRef}
-                fullWidth
-                size="medium"
-                placeholder="ค้นหาพื้นที่เช่า…"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search />
-                    </InputAdornment>
-                  ),
-                  endAdornment: keyword ? (
-                    <InputAdornment position="end">
-                      <Tooltip title="ล้างคำค้นหา">
-                        <IconButton
-                          aria-label="ล้างคำค้นหา"
-                          edge="end"
-                          onClick={clearKeyword}
-                        >
-                          <Close />
-                        </IconButton>
-                      </Tooltip>
-                    </InputAdornment>
-                  ) : undefined,
-                }}
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    height: 42,
-                    borderRadius: 9999,
-                    bgcolor: "rgba(255,255,255,.08)",
-                    "& fieldset": { borderColor: "rgba(255,255,255,0.36)" },
-                    "&:hover fieldset": {
-                      borderColor: "rgba(255,255,255,0.6)",
+              <Box
+                sx={{ width: "100%", maxWidth: { xs: 420, sm: 560, md: 720 } }}
+              >
+                <TextField
+                  inputRef={searchInputRef}
+                  fullWidth
+                  size="medium"
+                  placeholder="ค้นหาชื่อประกาศ…"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    ),
+                    endAdornment: keyword ? (
+                      <InputAdornment position="end">
+                        <Tooltip title="ล้างคำค้นหา">
+                          <IconButton
+                            aria-label="ล้างคำค้นหา"
+                            edge="end"
+                            onClick={clearKeyword}
+                          >
+                            <Close />
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ) : undefined,
+                  }}
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      height: 42,
+                      borderRadius: 9999,
+                      bgcolor: "rgba(255,255,255,.08)",
+                      "& fieldset": { borderColor: "rgba(255,255,255,0.36)" },
+                      "&:hover fieldset": {
+                        borderColor: "rgba(255,255,255,0.6)",
+                      },
+                      "&.Mui-focused fieldset": {
+                        borderColor: "#A6B28B",
+                        boxShadow: "none",
+                      },
                     },
-                    "&.Mui-focused fieldset": {
-                      borderColor: "#A6B28B",
-                      boxShadow: "none",
+                    "& .MuiInputBase-input": { color: "primary.contrastText" },
+                    "& .MuiInputAdornment-root": {
+                      color: "primary.contrastText",
                     },
-                  },
-                  "& .MuiInputBase-input": { color: "primary.contrastText" },
-                  "& .MuiInputAdornment-root": {
-                    color: "primary.contrastText",
-                  },
-                }}
-                aria-label="ช่องค้นหาพื้นที่เช่า"
-              />
+                  }}
+                  aria-label="ช่องค้นหาชื่อประกาศ"
+                />
+              </Box>
             </Box>
-          </Box>
+          )}
+
+          {/* Spacer when search is not shown */}
+          {!isHomePage && <Box sx={{ flex: 1 }} />}
 
           {/* Right: Account */}
           <Box sx={{ display: "flex", alignItems: "center" }}>
