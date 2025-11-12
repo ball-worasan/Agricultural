@@ -1,8 +1,9 @@
 "use client";
 
 import createCache from "@emotion/cache";
+import type { EmotionCache } from "@emotion/cache";
 
-export default function createEmotionCache() {
+export default function createEmotionCache(): EmotionCache {
   let insertionPoint: HTMLElement | undefined;
 
   if (typeof document !== "undefined") {
@@ -17,9 +18,8 @@ export default function createEmotionCache() {
     insertionPoint,
   });
 
-  // เพื่อความเข้ากันได้ในบางเคส
-  // @ts-ignore
-  cache.compat = true;
+  // เปิดโหมด compat โดยไม่ใช้ ts-ignore
+  (cache as EmotionCache & { compat?: boolean }).compat = true;
 
   return cache;
 }

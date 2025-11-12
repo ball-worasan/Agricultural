@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 
 import Container from "@mui/material/Container";
-import Grid from "@mui/material/Grid"; // MUI Grid v2 (prop size)
+import Grid from "@mui/material/Grid";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
@@ -12,34 +12,18 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
 import Snackbar from "@mui/material/Snackbar";
-import Alert from "@mui/material/Alert";
 import Chip from "@mui/material/Chip";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import InputLabel from "@mui/material/InputLabel";
 import FormControl from "@mui/material/FormControl";
-import List from "@mui/material/List";
-import ListItemButton from "@mui/material/ListItemButton";
-import ListItemIcon from "@mui/material/ListItemIcon";
-import ListItemText from "@mui/material/ListItemText";
-import Avatar from "@mui/material/Avatar";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import InputAdornment from "@mui/material/InputAdornment";
-import Skeleton from "@mui/material/Skeleton";
-
-import MenuIcon from "@mui/icons-material/Menu";
-import HomeIcon from "@mui/icons-material/Home";
-import HistoryIcon from "@mui/icons-material/History";
-import SettingsIcon from "@mui/icons-material/Settings";
-import LogoutIcon from "@mui/icons-material/Logout";
-import ImageIcon from "@mui/icons-material/Image";
 import UploadIcon from "@mui/icons-material/Upload";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SaveIcon from "@mui/icons-material/Save";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import PlaceIcon from "@mui/icons-material/Place";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 
 import { useRouter } from "next/navigation";

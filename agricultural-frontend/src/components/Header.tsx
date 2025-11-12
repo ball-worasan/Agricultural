@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
@@ -80,7 +80,6 @@ const deleteCookie = (name: string) => {
 
 /* ================ */
 export default function Header() {
-  const router = useRouter();
   const pathname = usePathname();
   const isHomePage = pathname === "/";
 

@@ -22,10 +22,8 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import dayjs, { Dayjs } from "dayjs";
 
 import Place from "@mui/icons-material/Place";
-import CalendarMonth from "@mui/icons-material/CalendarMonth";
 import Photo from "@mui/icons-material/Photo";
 import ArrowForward from "@mui/icons-material/ArrowForward";
-import Close from "@mui/icons-material/Close";
 
 /* helpers */
 type UserLite = { username?: string; email?: string; fullname?: string };
@@ -59,12 +57,6 @@ type ReserveDraft = {
   visitDate?: string;
 };
 
-const formatTHB = (n: number) =>
-  new Intl.NumberFormat("th-TH", {
-    style: "currency",
-    currency: "THB",
-    maximumFractionDigits: 0,
-  }).format(n);
 const formatThaiDate = (d: dayjs.Dayjs) => d.format("DD/MM/YYYY");
 
 export default function ReserveVisit() {

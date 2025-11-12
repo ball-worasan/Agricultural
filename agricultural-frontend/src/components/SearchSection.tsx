@@ -9,6 +9,7 @@ import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
+import type { Theme } from "@mui/material/styles";
 
 import Search from "@mui/icons-material/Search";
 import PlaceIcon from "@mui/icons-material/Place";
@@ -54,7 +55,7 @@ export default function SearchSection() {
       "&:hover fieldset": { borderColor: "text.primary" },
       "&.Mui-focused fieldset": {
         borderColor: "primary.main",
-        boxShadow: (t: any) => `0 0 0 3px ${t.palette.action.focus}`,
+        boxShadow: (t: Theme) => `0 0 0 3px ${t.palette.action.focus}`,
       },
     },
   } as const;
@@ -123,7 +124,7 @@ export default function SearchSection() {
             />
           </Grid>
 
-          {/* ประเภท — ใช้ TextField select เพื่อรองรับ startAdornment ได้ง่าย */}
+          {/* ประเภท */}
           <Grid size={{ xs: 12, md: 6, lg: 2.5 }}>
             <TextField
               fullWidth
@@ -155,7 +156,7 @@ export default function SearchSection() {
             </TextField>
           </Grid>
 
-          {/* งบประมาณ — ใช้ TextField select + ไอคอน */}
+          {/* งบประมาณ */}
           <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2.5 }}>
             <TextField
               fullWidth

@@ -1,22 +1,22 @@
-import { api } from './api';
+import { api } from "./api";
 
 export enum ReservationStatus {
-  PENDING = 'pending',
-  CONFIRMED = 'confirmed',
-  CANCELLED = 'cancelled',
-  COMPLETED = 'completed',
+  PENDING = "pending",
+  CONFIRMED = "confirmed",
+  CANCELLED = "cancelled",
+  COMPLETED = "completed",
 }
 
 export interface Reservation {
   id: string;
-  listing: string;
-  user: string;
+  listing: string; // listing id
+  user: string; // user id
   startDate: string;
   endDate: string;
   totalPrice: number;
   status: ReservationStatus;
-  paymentDetails?: Record<string, any>;
-  metadata?: Record<string, any>;
+  paymentDetails?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,8 +26,8 @@ export interface CreateReservationDTO {
   startDate: string;
   endDate: string;
   totalPrice: number;
-  paymentDetails?: Record<string, any>;
-  metadata?: Record<string, any>;
+  paymentDetails?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateReservationDTO {
@@ -35,40 +35,61 @@ export interface UpdateReservationDTO {
   endDate?: string;
   totalPrice?: number;
   status?: ReservationStatus;
-  paymentDetails?: Record<string, any>;
-  metadata?: Record<string, any>;
+  paymentDetails?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 export const reservationService = {
   async getAll(): Promise<Reservation[]> {
-    return api.get('/reservations');
+    const { data } = await api.get<Reservation[]>("/reservations");
+    return data;
   },
 
   async getById(id: string): Promise<Reservation> {
-    return api.get(`/reservations/${id}`);
+    const { data } = await api.get<Reservation>(`/reservations/${id}`);
+    return data;
   },
 
-  async create(data: CreateReservationDTO): Promise<Reservation> {
-    return api.post('/reservations', data);
+  async create(payload: CreateReservationDTO): Promise<Reservation> {
+    const { data } = await api.post<Reservation>("/reservations", payload);
+    return data;
   },
 
-  async update(id: string, data: UpdateReservationDTO): Promise<Reservation> {
-    return api.patch(`/reservations/${id}`, data);
+  async update(
+    id: string,
+    payload: UpdateReservationDTO
+  ): Promise<Reservation> {
+    const { data } = await api.patch<Reservation>(
+      `/reservations/${id}`,
+      payload
+    );
+    return data;
   },
 
   async delete(id: string): Promise<void> {
-    return api.delete(`/reservations/${id}`);
+    await api.delete<void>(`/reservations/${id}`);
   },
 
   async getMyReservations(): Promise<Reservation[]> {
-    return api.get('/reservations/user/me');
+    const { data } = await api.get<Reservation[]>("/reservations/user/me");
+    return data;
   },
 
   async getByListing(listingId: string): Promise<Reservation[]> {
-    return api.get(`/reservations/listing/${listingId}`);
+    const { data } = await api.get<Reservation[]>(
+      `/reservations/listing/${listingId}`
+    );
+    return data;
   },
 
-  async updateStatus(id: string, status: ReservationStatus): Promise<Reservation> {
-    return api.patch(`/reservations/${id}/status`, { status });
+  async updateStatus(
+    id: string,
+    status: ReservationStatus
+  ): Promise<Reservation> {
+    const { data } = await api.patch<Reservation>(
+      `/reservations/${id}/status`,
+      { status }
+    );
+    return data;
   },
 };

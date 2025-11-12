@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
+import Image from "next/image";
 
 import Header from "@/components/Header";
 import { getListingById } from "@/data/listings";
@@ -43,6 +44,19 @@ interface ReserveDraft {
   toDate?: string;
   totalDays?: number;
   totalPrice?: number;
+}
+
+/** รูปทรงขั้นต่ำของ listing ที่ UI ใช้จริง เพื่อเลิกใช้ `any` */
+interface ListingLite {
+  id: string;
+  title: string;
+  district: string;
+  province: string;
+  price: number;
+  unit?: string;
+  image?: string;
+  fromDate?: string;
+  toDate?: string;
 }
 
 /* ==== Utils ==== */
@@ -130,17 +144,24 @@ export default function PaymentMethod() {
         return;
       }
 
-      const listing = getListingById(listingId);
+      const listing = getListingById(listingId) as ListingLite | undefined;
       if (listing) {
+        const normalizedUnit =
+          listing.unit === "วัน" ||
+          listing.unit === "เดือน" ||
+          listing.unit === "ปี"
+            ? (listing.unit as ReserveDraft["unit"])
+            : "ปี";
+
         const newDraft: ReserveDraft = {
           listingId: listing.id,
           title: listing.title,
           locationText: `อ.${listing.district} จ.${listing.province}`,
           price: listing.price,
-          unit: (listing.unit as ReserveDraft["unit"]) || "ปี",
+          unit: normalizedUnit,
           image: listing.image,
-          fromDate: (listing as any)?.fromDate || undefined,
-          toDate: (listing as any)?.toDate || undefined,
+          fromDate: listing.fromDate ?? undefined,
+          toDate: listing.toDate ?? undefined,
         };
         setDraft(newDraft);
         sessionStorage.setItem("reserveDraft", JSON.stringify(newDraft));
@@ -161,8 +182,9 @@ export default function PaymentMethod() {
     [draft?.price]
   );
   const qrSrc = useMemo(
+    // PROMPTPAY_ID เป็นคงที่จากโมดูล ไม่ต้องใส่เป็น deps
     () => `https://promptpay.io/${PROMPTPAY_ID}/${amount}.png`,
-    [PROMPTPAY_ID, amount]
+    [amount]
   );
 
   // countdown state
@@ -399,21 +421,19 @@ export default function PaymentMethod() {
                 sx={{
                   width: "100%",
                   aspectRatio: "1 / 1",
-                  display: "grid",
-                  placeItems: "center",
+                  position: "relative",
                   bgcolor: "background.paper",
                   borderRadius: 2,
                   overflow: "hidden",
                 }}
               >
-                <img
+                <Image
                   src={qrSrc}
                   alt={`QR PromptPay ${amount} บาท`}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                  }}
+                  fill
+                  sizes="(max-width: 600px) 280px, 320px"
+                  style={{ objectFit: "contain" }}
+                  unoptimized
                 />
               </Box>
               <Stack
@@ -471,16 +491,25 @@ export default function PaymentMethod() {
                 >
                   ตัวอย่างสลิปที่อัปโหลด
                 </Typography>
-                <img
-                  src={slipPreview}
-                  alt="สลิปการโอน"
-                  style={{
+                <Box
+                  sx={{
+                    position: "relative",
                     width: "100%",
                     maxHeight: 360,
-                    objectFit: "contain",
-                    borderRadius: 8,
+                    aspectRatio: "3 / 4",
+                    borderRadius: 2,
+                    overflow: "hidden",
                   }}
-                />
+                >
+                  <Image
+                    src={slipPreview}
+                    alt="สลิปการโอน"
+                    fill
+                    sizes="(max-width: 600px) 100vw, 600px"
+                    style={{ objectFit: "contain" }}
+                    unoptimized
+                  />
+                </Box>
               </Paper>
             ) : (
               <Alert severity="warning">

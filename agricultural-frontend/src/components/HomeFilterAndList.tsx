@@ -10,6 +10,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import FormControl from "@mui/material/FormControl";
 import Select from "@mui/material/Select";
+import type { SelectChangeEvent } from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import InputLabel from "@mui/material/InputLabel";
 import Divider from "@mui/material/Divider";
@@ -104,6 +105,7 @@ const PROVINCES = [
   "อุทัยธานี",
   "อุบลราชธานี",
 ];
+
 const PRICE_FILTERS = [
   { value: "all", label: "ทั้งหมด" },
   { value: "lt10000", label: "< 10,000" },
@@ -119,11 +121,12 @@ const SORTS = [
 
 const TAGS = ["ทำนา", "ทำไร่", "ทำสวน", "ฟาร์ม"] as const;
 
+/** type ช่วยอ่าน */
+type PriceValue = (typeof PRICE_FILTERS)[number]["value"];
+type SortValue = (typeof SORTS)[number]["value"];
+
 /** ---- utils ---- */
-function withinPriceRange(
-  value: number,
-  f: (typeof PRICE_FILTERS)[number]["value"]
-) {
+function withinPriceRange(value: number, f: PriceValue) {
   switch (f) {
     case "lt10000":
       return value < 10000;
@@ -379,11 +382,9 @@ function ListingRow({ it }: { it: Listing }) {
 export default function HomeFilterAndList() {
   const [searchTitle, setSearchTitle] = useState<string>("");
   const [province, setProvince] = useState<string>("ทั้งหมด");
-  const [price, setPrice] =
-    useState<(typeof PRICE_FILTERS)[number]["value"]>("all");
+  const [price, setPrice] = useState<PriceValue>("all");
   const [selectedTag, setSelectedTag] = useState<string>("ทั้งหมด");
-  const [sortBy, setSortBy] =
-    useState<(typeof SORTS)[number]["value"]>("newest");
+  const [sortBy, setSortBy] = useState<SortValue>("newest");
 
   // Listen for search events from Header
   useEffect(() => {
@@ -398,22 +399,18 @@ export default function HomeFilterAndList() {
 
   const data = useMemo(() => {
     let arr = LISTINGS.filter((x) => {
-      // Filter by search title
       if (
         searchTitle.trim() &&
         !x.title.toLowerCase().includes(searchTitle.toLowerCase().trim())
       ) {
         return false;
       }
-      // Filter by province
       if (province !== "ทั้งหมด" && x.province !== province) {
         return false;
       }
-      // Filter by price
       if (!withinPriceRange(x.price, price)) {
         return false;
       }
-      // Filter by tag
       if (selectedTag !== "ทั้งหมด") {
         if (!x.tags || !x.tags.includes(selectedTag)) {
           return false;
@@ -422,7 +419,6 @@ export default function HomeFilterAndList() {
       return true;
     });
 
-    // Sort
     switch (sortBy) {
       case "priceAsc":
         arr = [...arr].sort((a, b) => a.price - b.price);
@@ -476,7 +472,9 @@ export default function HomeFilterAndList() {
                 labelId="province"
                 label="จังหวัด"
                 value={province}
-                onChange={(e) => setProvince(String(e.target.value))}
+                onChange={(e: SelectChangeEvent<string>) =>
+                  setProvince(e.target.value)
+                }
                 MenuProps={{ disableScrollLock: true }}
               >
                 {PROVINCES.map((p) => (
@@ -496,7 +494,9 @@ export default function HomeFilterAndList() {
                 labelId="price"
                 label="ราคา"
                 value={price}
-                onChange={(e) => setPrice(e.target.value as any)}
+                onChange={(e: SelectChangeEvent<PriceValue>) =>
+                  setPrice(e.target.value as PriceValue)
+                }
                 MenuProps={{ disableScrollLock: true }}
               >
                 {PRICE_FILTERS.map((p) => (
@@ -516,7 +516,9 @@ export default function HomeFilterAndList() {
                 labelId="tag"
                 label="ประเภท"
                 value={selectedTag}
-                onChange={(e) => setSelectedTag(String(e.target.value))}
+                onChange={(e: SelectChangeEvent<string>) =>
+                  setSelectedTag(e.target.value)
+                }
                 MenuProps={{ disableScrollLock: true }}
               >
                 <MenuItem value="ทั้งหมด">ทั้งหมด</MenuItem>
@@ -560,7 +562,9 @@ export default function HomeFilterAndList() {
                   labelId="sort"
                   label="ลงประกาศล่าสุด"
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
+                  onChange={(e: SelectChangeEvent<SortValue>) =>
+                    setSortBy(e.target.value as SortValue)
+                  }
                   MenuProps={{ disableScrollLock: true }}
                 >
                   {SORTS.map((s) => (

@@ -85,8 +85,8 @@ services:
     image: minio/minio:latest
     container_name: agricultural-minio
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9900:9900"
+      - "9901:9901"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
