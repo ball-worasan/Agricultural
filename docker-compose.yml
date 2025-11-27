@@ -1,86 +1,6 @@
 name: agricultural-dev
 
 services:
-  agricultural-backend:
-    build:
-      context: ./agricultural-backend
-    container_name: agricultural-backend
-    ports:
-      - "4000:4000"
-    env_file:
-      - ./agricultural-backend/.env.docker
-    volumes:
-      - ./agricultural-backend:/app
-      - backend_node_modules:/app/node_modules
-      - ./agricultural-backend/src:/app/src
-      - ./agricultural-backend/package.json:/app/package.json
-      - ./agricultural-backend/tsconfig.json:/app/tsconfig.json
-    command:
-      - sh
-      - -lc
-      - |
-        corepack enable
-        pnpm config set store-dir /root/.local/share/pnpm/store --global
-        pnpm -v
-        if [ ! -x node_modules/.bin/nest ]; then
-          pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
-        fi
-        # Ensure swagger deps exist (dev hot-reload scenario)
-        node -e "const d=require('./package.json').dependencies||{};process.exit(d['@nestjs/swagger']?0:1)" \
-          || pnpm add @nestjs/swagger swagger-ui-express
-        # Dev runner
-        exec pnpm start:dev
-    working_dir: /app
-    depends_on:
-      agricultural-mongodb:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
-    ulimits:
-      nofile: { soft: 1048576, hard: 1048576 }
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "3" }
-    networks: [appnet]
-
-  agricultural-frontend:
-    build:
-      context: ./agricultural-frontend
-    container_name: agricultural-frontend
-    ports:
-      - "3000:3000"
-    env_file:
-      - ./agricultural-frontend/.env.docker
-    volumes:
-      - ./agricultural-frontend:/app
-      - frontend_node_modules:/app/node_modules
-      - ./agricultural-frontend/src:/app/src
-      - ./agricultural-frontend/package.json:/app/package.json
-      - ./agricultural-frontend/tsconfig.json:/app/tsconfig.json
-    command:
-      - sh
-      - -lc
-      - |
-        corepack enable
-        pnpm -v
-        if [ ! -x node_modules/.bin/next ]; then
-          pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
-        fi
-        exec pnpm dev -p 3000 --hostname 0.0.0.0
-    depends_on:
-      agricultural-backend:
-        condition: service_started
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "3" }
-    networks: [appnet]
-
   agricultural-minio:
     image: minio/minio:latest
     container_name: agricultural-minio
@@ -136,8 +56,6 @@ services:
     networks: [appnet]
 
 volumes:
-  backend_node_modules:
-  frontend_node_modules:
   mongo_data:
   minio_data:
 
