@@ -411,3 +411,102 @@
     font-size: 2rem;
   }
 }
+
+/* Aliases to match current payment.php markup */
+/* Layout aliases */
+.payment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-xl);
+}
+.payment-section {
+  background: var(--bg-white);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+}
+.section-heading {
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 2px solid var(--primary-color);
+  font-weight: var(--font-semibold);
+}
+
+/* Booking info aliases */
+.booking-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+.booking-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm);
+  background: var(--bg-gray);
+  border-radius: var(--radius-sm);
+}
+.bl-label {
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+.bl-value {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+.ref-code {
+  font-size: 1.2rem;
+  color: var(--primary-color);
+  font-family: "Courier New", monospace;
+}
+
+/* QR + payment meta aliases */
+.qr-box {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-md);
+  background: var(--bg-white);
+  border: 3px solid var(--primary-color);
+  border-radius: var(--radius-md);
+}
+.qr-img {
+  max-width: 300px;
+  width: 100%;
+  height: auto;
+}
+.pay-meta {
+  background: var(--bg-gray);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-sm);
+}
+.pay-meta > div {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-xs) 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.pay-meta > div:last-child {
+  border-bottom: none;
+}
+.pay-meta .meta-label {
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+  margin-right: var(--spacing-xs);
+}
+.pay-meta .meta-value {
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
+}
+
+/* Responsive aliases */
+@media (max-width: 992px) {
+  .payment-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -72,6 +72,12 @@ $routes = [
         'css'   => ['my_properties.css'],
         'auth'  => true,
     ],
+    'property_bookings' => [
+        'title' => 'รายการจองพื้นที่',
+        'view'  => 'property_bookings',
+        'css'   => ['property_bookings.css'],
+        'auth'  => true,
+    ],
     'add_property' => [
         'title' => 'เพิ่มพื้นที่ปล่อยเช่า',
         'view'  => 'add_property',

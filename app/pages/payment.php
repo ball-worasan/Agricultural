@@ -12,41 +12,56 @@ require_once APP_PATH . '/includes/helpers.php';
 
 app_session_start();
 
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
 // ----------------------
-// helper JSON response
+// helper JSON response (กันประกาศซ้ำ)
 // ----------------------
-function json_response(array $payload, int $statusCode = 200): void
-{
-    http_response_code($statusCode);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-    exit();
+if (!function_exists('json_response')) {
+    function json_response(array $payload, int $statusCode = 200): void
+    {
+        http_response_code($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+        exit();
+    }
 }
 
 // ----------------------
-// ตรวจสอบการล็อกอิน
+// ตรวจสอบการล็อกอิน (แยก GET/POST)
 // ----------------------
 $user = current_user();
+
 if ($user === null) {
-    json_response([
-        'success' => false,
-        'message' => 'กรุณาเข้าสู่ระบบ',
-    ], 401);
+    if ($method === 'POST') {
+        json_response([
+            'success' => false,
+            'message' => 'กรุณาเข้าสู่ระบบ',
+        ], 401);
+    }
+
+    // GET ปล่อยให้ไปหน้า signin ปกติ
+    redirect('?page=signin');
 }
 
 $userId = (int) ($user['id'] ?? 0);
 if ($userId <= 0) {
     app_log('payment_invalid_user', ['session_user' => $user]);
-    json_response([
-        'success' => false,
-        'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
-    ], 401);
+
+    if ($method === 'POST') {
+        json_response([
+            'success' => false,
+            'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+        ], 401);
+    }
+
+    redirect('?page=signin');
 }
 
 // ----------------------
 // จัดการ POST: ยืนยันการชำระมัดจำ (AJAX)
 // ----------------------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_payment'])) {
+if ($method === 'POST' && isset($_POST['update_payment'])) {
     $propertyId  = isset($_POST['property_id']) ? (int) $_POST['property_id'] : 0;
     $bookingDate = trim((string) ($_POST['booking_date'] ?? ''));
 
@@ -58,7 +73,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_payment'])) {
     }
 
     try {
-        // หาการจองล่าสุดของ user-พื้นที่-วันที่นี้ ที่ยังไม่ยกเลิก
+        // จัดการอัปโหลดสลิป
+        $slipImagePath = null;
+
+        if (isset($_FILES['slip_file']) && $_FILES['slip_file']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = APP_PATH . '/public/storage/uploads/slips';
+            
+            // สร้างโฟลเดอร์ถ้ายังไม่มี
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+
+            $file = $_FILES['slip_file'];
+            $fileName = $file['name'];
+            $fileTmpName = $file['tmp_name'];
+            $fileSize = $file['size'];
+            $fileError = $file['error'];
+
+            // ตรวจสอบขนาดไฟล์ (ไม่เกิน 5MB)
+            if ($fileSize > 5 * 1024 * 1024) {
+                json_response([
+                    'success' => false,
+                    'message' => 'ไฟล์มีขนาดเกิน 5MB',
+                ], 400);
+            }
+
+            // ตรวจสอบนามสกุลไฟล์
+            $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            $fileExtension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+
+            if (!in_array($fileExtension, $allowedExtensions, true)) {
+                json_response([
+                    'success' => false,
+                    'message' => 'รองรับเฉพาะไฟล์รูปภาพ (jpg, jpeg, png, gif, webp)',
+                ], 400);
+            }
+
+            // สร้างชื่อไฟล์ใหม่ป้องกันชื่อซ้ำ
+            $newFileName = sprintf(
+                'slip_%d_%d_%s.%s',
+                $userId,
+                $propertyId,
+                date('YmdHis'),
+                $fileExtension
+            );
+
+            $uploadPath = $uploadDir . '/' . $newFileName;
+
+            // ย้ายไฟล์
+            if (move_uploaded_file($fileTmpName, $uploadPath)) {
+                $slipImagePath = '/storage/uploads/slips/' . $newFileName;
+            } else {
+                app_log('slip_upload_failed', [
+                    'user_id'     => $userId,
+                    'property_id' => $propertyId,
+                    'upload_path' => $uploadPath,
+                ]);
+            }
+        }
+
+        // หา booking ล่าสุดของ user-พื้นที่-วันที่นี้ ที่ยังไม่ยกเลิก
         $booking = Database::fetchOne(
             '
             SELECT id, payment_status, booking_status 
@@ -80,28 +154,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_payment'])) {
             ], 404);
         }
 
-        if ($booking['payment_status'] !== 'waiting') {
+        if ((string) $booking['payment_status'] !== 'waiting') {
             json_response([
                 'success' => false,
                 'message' => 'สถานะการชำระเงินไม่อยู่ในสถานะรอชำระ',
             ], 400);
         }
 
-        Database::execute(
-            '
-            UPDATE bookings
-            SET payment_status = "deposit_success",
-                updated_at = NOW()
-            WHERE id = ?
-            ',
-            [(int) $booking['id']]
-        );
+        // อัปเดตสถานะและสลิป (ถ้ามี)
+        if ($slipImagePath) {
+            Database::execute(
+                '
+                UPDATE bookings
+                SET payment_status = "deposit_success",
+                    slip_image = ?,
+                    updated_at = NOW()
+                WHERE id = ?
+                ',
+                [$slipImagePath, (int) $booking['id']]
+            );
+        } else {
+            Database::execute(
+                '
+                UPDATE bookings
+                SET payment_status = "deposit_success",
+                    updated_at = NOW()
+                WHERE id = ?
+                ',
+                [(int) $booking['id']]
+            );
+        }
 
         app_log('payment_update_success', [
-            'user_id'     => $userId,
-            'property_id' => $propertyId,
-            'booking_id'  => $booking['id'],
+            'user_id'      => $userId,
+            'property_id'  => $propertyId,
+            'booking_id'   => $booking['id'],
             'booking_date' => $bookingDate,
+            'slip_image'   => $slipImagePath,
         ]);
 
         json_response([
@@ -110,10 +199,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_payment'])) {
         ]);
     } catch (Throwable $e) {
         app_log('payment_update_error', [
-            'user_id'     => $userId,
-            'property_id' => $propertyId,
+            'user_id'      => $userId,
+            'property_id'  => $propertyId,
             'booking_date' => $bookingDate,
-            'error'       => $e->getMessage(),
+            'error'        => $e->getMessage(),
         ]);
 
         json_response([
@@ -133,7 +222,7 @@ $day        = isset($_GET['day']) ? (int) $_GET['day'] : 0;
 $month      = isset($_GET['month']) ? (int) $_GET['month'] : 0; // 0-based
 $year       = isset($_GET['year']) ? (int) $_GET['year'] : 0;
 
-if ($propertyId === 0 || $day === 0 || $year === 0) {
+if ($propertyId <= 0 || $day <= 0 || $year <= 0) {
     redirect('?page=home');
 }
 
@@ -153,6 +242,19 @@ if (!$item) {
 // ห้ามเจ้าของจองพื้นที่ตัวเอง
 if ((int) $item['owner_id'] === $userId) {
     redirect('?page=detail&id=' . $propertyId . '&error=owner');
+}
+
+// ตรวจสอบสถานะพื้นที่ (ต้องยังว่าง/ติดจองเท่านั้น)
+$allowedStatuses = ['available', 'booked'];
+if (!in_array((string) $item['status'], $allowedStatuses, true)) {
+?>
+    <div class="container">
+        <h1>ไม่สามารถจองพื้นที่นี้ได้</h1>
+        <p>สถานะปัจจุบัน: <?php echo e((string) $item['status']); ?></p>
+        <a href="?page=detail&id=<?php echo (int) $propertyId; ?>">กลับไปหน้ารายละเอียด</a>
+    </div>
+<?php
+    exit();
 }
 
 // สร้างวันที่แบบไทย + booking_date
@@ -182,7 +284,7 @@ $bookingDate  = sprintf('%04d-%02d-%02d', $year, $month + 1, $day);
 
 // คำนวณมัดจำ
 $annualPriceRaw = (int) $item['price'];
-$depositRaw     = (int) ceil($annualPriceRaw / 12);
+$depositRaw     = max(0, (int) ceil($annualPriceRaw / 12)); // กันค่าติดลบ
 $deposit        = number_format($depositRaw);
 
 // ตรวจสอบว่ามีการจองนี้อยู่แล้วหรือยัง
@@ -229,7 +331,7 @@ if (!$existingBooking) {
                 <li>
                     <span class="bl-label">รหัส:</span>
                     <span class="bl-value ref-code">
-                        #<?php echo str_pad((string)$propertyId, 6, '0', STR_PAD_LEFT); ?>
+                        #<?php echo str_pad((string) $propertyId, 6, '0', STR_PAD_LEFT); ?>
                     </span>
                 </li>
                 <li><span class="bl-label">พื้นที่:</span><span class="bl-value"><?php echo e($item['title']); ?></span></li>
@@ -298,18 +400,15 @@ if (!$existingBooking) {
         }
 
         try {
-            const body = new URLSearchParams({
-                update_payment: '1',
-                property_id: String(PROPERTY_ID),
-                booking_date: BOOKING_DATE
-            });
+            const formData = new FormData();
+            formData.append('update_payment', '1');
+            formData.append('property_id', String(PROPERTY_ID));
+            formData.append('booking_date', BOOKING_DATE);
+            formData.append('slip_file', slipInput.files[0]);
 
             const res = await fetch(window.location.href, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                },
-                body: body.toString()
+                body: formData
             });
 
             let data = null;
@@ -336,7 +435,7 @@ if (!$existingBooking) {
 
     function cancelPayment() {
         if (confirm('คุณต้องการยกเลิกการจองใช่หรือไม่?')) {
-            // ปล่อยให้ไปจัดการยกเลิกจากหน้า history ที่มี flow ครบ
+            // ยกเลิกผ่าน flow หน้า history
             window.location.href = '?page=history';
         }
     }

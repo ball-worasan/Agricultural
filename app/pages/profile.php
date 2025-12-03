@@ -33,61 +33,80 @@ if (
     && isset($_FILES['profile_image'])
     && $_FILES['profile_image']['error'] !== UPLOAD_ERR_NO_FILE
 ) {
-    $uploadDir = dirname(__DIR__, 2) . '/uploads/profiles/';
+    // ใช้ path ที่สอดคล้องกับ public/storage/uploads
+    $uploadDir = APP_PATH . '/public/storage/uploads/profiles';
 
-    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0777, true)) {
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
         $message     = 'ไม่สามารถสร้างโฟลเดอร์อัปโหลดรูปภาพได้';
         $messageType = 'error';
     } else {
-        $file        = $_FILES['profile_image'];
-        $allowedTypes = [
+        $file = $_FILES['profile_image'];
+        $allowedMimeTypes = [
             'image/jpeg',
-            'image/jpg',
             'image/png',
             'image/gif',
             'image/webp',
-            'image/heif',
-            'image/heic',
         ];
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
         $maxSize = 5 * 1024 * 1024; // 5MB
 
         if ($file['error'] === UPLOAD_ERR_OK) {
-            $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+            // ตรวจสอบ MIME type จริง
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
             $mimeType = finfo_file($finfo, $file['tmp_name']);
             finfo_close($finfo);
 
-            if (!in_array($mimeType, $allowedTypes, true) && !in_array($file['type'], $allowedTypes, true)) {
-                $message     = 'อนุญาตเฉพาะไฟล์รูปภาพ (JPEG, PNG, GIF, WEBP, HEIF)';
+            // ตรวจสอบนามสกุลไฟล์
+            $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+            if (!in_array($mimeType, $allowedMimeTypes, true) || !in_array($fileExtension, $allowedExtensions, true)) {
+                $message     = 'อนุญาตเฉพาะไฟล์รูปภาพ (JPEG, PNG, GIF, WEBP)';
                 $messageType = 'error';
             } elseif ((int) $file['size'] > $maxSize) {
                 $message     = 'ขนาดไฟล์ต้องไม่เกิน 5MB';
                 $messageType = 'error';
             } else {
-                $extension   = strtolower((string) pathinfo($file['name'], PATHINFO_EXTENSION));
-                $newFileName = 'profile_' . $userId . '_' . time() . '.' . $extension;
-                $destination = $uploadDir . $newFileName;
+                // สร้างชื่อไฟล์ใหม่แบบ unique
+                $newFileName = sprintf(
+                    'profile_%d_%s.%s',
+                    $userId,
+                    date('YmdHis'),
+                    $fileExtension
+                );
+                $destination = $uploadDir . '/' . $newFileName;
 
                 if (move_uploaded_file($file['tmp_name'], $destination)) {
-                    // ลบรูปเดิมถ้ามี
+                    // ลบรูปเดิมถ้ามี (ไม่ใช่ ui-avatars)
                     $oldImage = Database::fetchOne('SELECT profile_image FROM users WHERE id = ?', [$userId]);
 
                     if (
                         $oldImage
                         && !empty($oldImage['profile_image'])
                         && strpos((string) $oldImage['profile_image'], 'ui-avatars.com') === false
+                        && strpos((string) $oldImage['profile_image'], 'http') === false
                     ) {
-                        $oldPath = dirname(__DIR__, 2) . $oldImage['profile_image'];
+                        $oldPath = APP_PATH . '/public' . $oldImage['profile_image'];
                         if (is_file($oldPath)) {
                             @unlink($oldPath);
+                            app_log('profile_image_deleted', ['path' => $oldPath]);
                         }
                     }
 
-                    $imagePath = '/uploads/profiles/' . $newFileName;
+                    // บันทึก path สัมพัทธ์จาก public/
+                    $imagePath = '/storage/uploads/profiles/' . $newFileName;
 
                     Database::execute(
                         'UPDATE users SET profile_image = ?, updated_at = NOW() WHERE id = ?',
                         [$imagePath, $userId]
                     );
+
+                    // อัปเดต session
+                    $_SESSION['user']['profile_image'] = $imagePath;
+
+                    app_log('profile_image_uploaded', [
+                        'user_id' => $userId,
+                        'path'    => $imagePath,
+                    ]);
 
                     // redirect กัน refresh แล้วอัปโหลดซ้ำ
                     redirect('?page=profile&success=image');
@@ -219,9 +238,18 @@ if (!$user) {
 }
 
 // สร้าง URL รูปโปรไฟล์
-$profileImageUrl = !empty($user['profile_image'])
-    ? (string) $user['profile_image']
-    : 'https://ui-avatars.com/api/?name=' . urlencode((string) $user['firstname'] . '+' . (string) $user['lastname']) . '&size=200&background=667eea&color=fff&bold=true';
+$profileImageUrl = 'https://ui-avatars.com/api/?name=' . urlencode((string) $user['firstname'] . '+' . (string) $user['lastname']) . '&size=200&background=667eea&color=fff&bold=true';
+
+if (!empty($user['profile_image'])) {
+    $imagePath = (string) $user['profile_image'];
+    // ถ้าเป็น URL เต็ม (http/https) ใช้เลย
+    if (strpos($imagePath, 'http') === 0) {
+        $profileImageUrl = $imagePath;
+    } else {
+        // ถ้าเป็น path สัมพัทธ์ ให้เติม base URL
+        $profileImageUrl = $imagePath;
+    }
+}
 
 $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระบบ' : 'สมาชิก';
 ?>
@@ -256,7 +284,7 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                                 type="file"
                                 id="uploadPicture"
                                 name="profile_image"
-                                accept="image/jpeg,image/png,image/gif,image/webp,image/heif,image/heic"
+                                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                                 style="display: none;">
                         </div>
                     </div>
@@ -452,12 +480,10 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                     'image/png',
                     'image/gif',
                     'image/webp',
-                    'image/heif',
-                    'image/heic',
                 ];
 
                 if (!allowed.includes(file.type)) {
-                    alert('อนุญาตเฉพาะไฟล์รูปภาพ (JPEG, PNG, GIF, WEBP, HEIF)');
+                    alert('อนุญาตเฉพาะไฟล์รูปภาพ (JPEG, PNG, GIF, WEBP)');
                     this.value = '';
                     return;
                 }
