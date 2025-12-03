@@ -1,0 +1,8 @@
+.env
+public/storage/
+storage/
+uploads/
+vendor/
+node_modules/
+.idea/
+.vscode/
