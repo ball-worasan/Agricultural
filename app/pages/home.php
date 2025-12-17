@@ -59,12 +59,12 @@ try {
 
     $sql = "
         SELECT 
-            id, owner_id, title, location, province, category,
-            has_water, has_electric, price, status,
-            main_image, description, created_at
-        FROM properties
+            p.id, p.owner_id, p.title, p.location, p.province, p.category,
+            p.has_water, p.has_electric, p.price, p.status,
+            p.main_image, p.description, p.created_at
+        FROM properties p
         {$whereBase}
-        ORDER BY created_at DESC
+        ORDER BY p.created_at DESC
         LIMIT :offset, :limit
     ";
 

@@ -8,6 +8,8 @@ if (!defined('APP_PATH')) {
 
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
+require_once APP_PATH . '/includes/UserService.php';
+require_once APP_PATH . '/includes/ImageService.php';
 
 app_session_start();
 
@@ -86,10 +88,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_FILES['profile_i
         redirect('?page=profile');
     }
 
-    $newName = sprintf('profile_%d_%s.%s', $userId, date('YmdHis'), $ext);
-    $dest = $uploadDir . '/' . $newName;
+    $random = bin2hex(random_bytes(8));
+    $newName = sprintf('profile_%d_%s_%s.%s', $userId, date('YmdHis'), $random, $ext);
+    
+    // ใช้ ImageService เพื่อ resize และ optimize
+    $processed = ImageService::uploadAndProcess(
+        $file,
+        $uploadDir,
+        $newName
+    );
 
-    if (!move_uploaded_file($file['tmp_name'], $dest)) {
+    if (!$processed) {
         flash('error', 'ไม่สามารถบันทึกไฟล์ได้');
         redirect('?page=profile');
     }
@@ -100,9 +109,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_FILES['profile_i
         $oldRel = (string)$old['profile_image'];
         if (strpos($oldRel, '/storage/uploads/profiles/') === 0) {
             $oldPath = APP_PATH . '/public' . $oldRel;
-            if (is_file($oldPath)) {
-                @unlink($oldPath);
-            }
+            ImageService::deleteImage($oldPath);
         }
     }
 
@@ -178,40 +185,29 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['change_pas
         redirect('?page=profile');
     }
 
-    if (strlen($new) < 6) {
-        flash('error', 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร');
+    if (strlen($new) < 8) {
+        flash('error', 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
         redirect('?page=profile');
     }
 
-    if ($new === $current) {
-        flash('error', 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม');
+    $result = UserService::changePassword($userId, $current, $new);
+    
+    if ($result['success']) {
+        flash('success', $result['message']);
+        redirect('?page=profile&success=password');
+    } else {
+        flash('error', $result['message']);
         redirect('?page=profile');
     }
-
-    $row = Database::fetchOne('SELECT password FROM users WHERE id = ?', [$userId]);
-    if (!$row || !password_verify($current, (string)$row['password'])) {
-        flash('error', 'รหัสผ่านเดิมไม่ถูกต้อง');
-        redirect('?page=profile');
-    }
-
-    $hash = password_hash($new, PASSWORD_DEFAULT);
-    if ($hash === false) {
-        flash('error', 'ไม่สามารถตั้งรหัสผ่านใหม่ได้');
-        redirect('?page=profile');
-    }
-
-    Database::execute(
-        'UPDATE users SET password=?, updated_at=NOW() WHERE id=?',
-        [$hash, $userId]
-    );
-
-    redirect('?page=profile&success=password');
 }
 
 // =======================================================
 // LOAD USER
 // =======================================================
-$user = Database::fetchOne('SELECT * FROM users WHERE id = ?', [$userId]);
+$user = Database::fetchOne(
+    'SELECT id, username, email, firstname, lastname, address, phone, profile_image, role, is_active, created_at, updated_at FROM users WHERE id = ?',
+    [$userId]
+);
 if (!$user) {
     unset($_SESSION['user']);
     redirect('?page=signin');

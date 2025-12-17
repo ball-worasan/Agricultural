@@ -9,6 +9,7 @@ if (!defined('APP_PATH')) {
 
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
+require_once APP_PATH . '/includes/NotificationService.php';
 
 app_session_start();
 
@@ -24,7 +25,7 @@ if ($id <= 0) {
 $item = null;
 try {
     $item = Database::fetchOne(
-        'SELECT * FROM properties WHERE id = ? LIMIT 1',
+        'SELECT id, owner_id, title, location, province, area, area_rai, area_ngan, area_sqwa, category, has_water, has_electric, soil_type, irrigation, price, status, is_active, available_from, available_to, description, main_image, created_at, updated_at FROM properties WHERE id = ? LIMIT 1',
         [$id]
     );
 } catch (Throwable $e) {

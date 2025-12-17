@@ -8,6 +8,7 @@ if (!defined('APP_PATH')) {
 
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
+require_once APP_PATH . '/includes/ImageService.php';
 
 app_session_start();
 
@@ -199,13 +200,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                         continue;
                     }
 
-                    $newName = uniqid('prop_', true) . '_' . time() . '_' . $i . '.' . $ext;
+                    $random = bin2hex(random_bytes(8));
+                    $newName = 'prop_' . $random . '_' . time() . '_' . $i . '.' . $ext;
                     $dest = $uploadDir . '/' . $newName;
 
-                    if (move_uploaded_file($tmp, $dest)) {
+                    // ใช้ ImageService เพื่อ resize และ optimize
+                    $processed = ImageService::uploadAndProcess(
+                        [
+                            'tmp_name' => $tmp,
+                            'name' => $name,
+                            'size' => $size,
+                        ],
+                        $uploadDir,
+                        $newName
+                    );
+
+                    if ($processed) {
                         $uploadedImages[] = '/storage/uploads/properties/' . $newName;
                     } else {
-                        $errors[] = "ไม่สามารถอัปโหลดรูปภาพ {$name} ได้";
+                        // Fallback: อัปโหลดแบบเดิมถ้า ImageService ล้มเหลว
+                        if (move_uploaded_file($tmp, $dest)) {
+                            $uploadedImages[] = '/storage/uploads/properties/' . $newName;
+                        } else {
+                            $errors[] = "ไม่สามารถอัปโหลดรูปภาพ {$name} ได้";
+                        }
                     }
                 }
             }

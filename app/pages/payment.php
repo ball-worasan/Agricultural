@@ -9,23 +9,14 @@ if (!defined('APP_PATH')) {
 
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
+require_once APP_PATH . '/includes/NotificationService.php';
+require_once APP_PATH . '/includes/NotificationService.php';
 
 app_session_start();
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// ----------------------
-// helper JSON response (กันประกาศซ้ำ)
-// ----------------------
-if (!function_exists('json_response')) {
-    function json_response(array $payload, int $statusCode = 200): void
-    {
-        http_response_code($statusCode);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit();
-    }
-}
+// json_response ถูกประกาศไว้ใน helpers.php แล้ว ไม่ต้องประกาศซ้ำ
 
 // ----------------------
 // ตรวจสอบการล็อกอิน (แยก GET/POST)
@@ -221,6 +212,20 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
                 );
             }
 
+            // แจ้งเตือนเจ้าของพื้นที่
+            $propertyInfo = Database::fetchOne(
+                'SELECT owner_id, title FROM properties WHERE id = ?',
+                [$propertyId]
+            );
+            
+            if ($propertyInfo) {
+                NotificationService::notifyPaymentReceived(
+                    (int)$propertyInfo['owner_id'],
+                    (int)$booking['id'],
+                    (float)$booking['deposit_amount']
+                );
+            }
+
             app_log('payment_update_success', [
                 'user_id'      => $userId,
                 'property_id'  => $propertyId,
@@ -303,7 +308,10 @@ $fullDate     = sprintf('%d %s %d', $day, $monthNames[$month], $buddhistYear);
 $bookingDate  = sprintf('%04d-%02d-%02d', $year, $month + 1, $day);
 
 // ดึงข้อมูลพื้นที่
-$item = Database::fetchOne('SELECT * FROM properties WHERE id = ?', [$propertyId]);
+$item = Database::fetchOne(
+    'SELECT id, owner_id, title, location, province, price, status, is_active FROM properties WHERE id = ?',
+    [$propertyId]
+);
 
 if (!$item) {
 ?>
@@ -378,7 +386,7 @@ try {
         );
 
         if (!$existingBooking) {
-            Database::execute(
+            $bookingId = Database::execute(
                 '
                 INSERT INTO bookings
                     (user_id, property_id, booking_date, payment_status, booking_status, deposit_amount, total_amount, created_at)
@@ -387,6 +395,20 @@ try {
                 ',
                 [$userId, $propertyId, $bookingDate, 'waiting', 'pending', $depositRaw, $annualPriceRaw]
             );
+            
+            // แจ้งเตือนเจ้าของพื้นที่
+            $propertyTitle = Database::fetchOne(
+                'SELECT title FROM properties WHERE id = ?',
+                [$propertyId]
+            );
+            
+            if ($propertyTitle && (int)($prop['owner_id'] ?? 0) > 0) {
+                NotificationService::notifyNewBooking(
+                    (int)$prop['owner_id'],
+                    (int)Database::lastInsertId(),
+                    (string)$propertyTitle['title']
+                );
+            }
         } else {
             // ถ้าเขามาเปิดซ้ำแล้วเคยจ่ายแล้ว ก็ไม่ควร “เหมือนเริ่มใหม่”
             $ps = (string) ($existingBooking['payment_status'] ?? '');

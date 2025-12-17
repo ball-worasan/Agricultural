@@ -16,10 +16,7 @@ $user   = current_user();
 
 if ($user === null) {
     if ($method === 'POST') {
-        http_response_code(401);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'message' => 'กรุณาเข้าสู่ระบบ'], JSON_UNESCAPED_UNICODE);
-        exit();
+        json_response(['success' => false, 'message' => 'กรุณาเข้าสู่ระบบ'], 401);
     }
     redirect('?page=signin');
 }
@@ -27,44 +24,39 @@ if ($user === null) {
 $userId = (int) ($user['id'] ?? 0);
 if ($userId <= 0) {
     if ($method === 'POST') {
-        http_response_code(401);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง'], JSON_UNESCAPED_UNICODE);
-        exit();
+        json_response(['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง'], 401);
     }
     redirect('?page=signin');
 }
 
+$csrfToken = csrf_token();
+
 // POST: บันทึกการชำระเต็มจำนวนพร้อมสลิป
 if ($method === 'POST' && isset($_POST['full_payment'])) {
+    // CSRF protection
+    $postedCsrf = (string) ($_POST['csrf'] ?? '');
+    if (!csrf_verify($postedCsrf)) {
+        json_response(['success' => false, 'message' => 'CSRF ไม่ถูกต้อง'], 403);
+    }
     $bookingId  = (int) ($_POST['booking_id'] ?? 0);
     $propertyId = (int) ($_POST['property_id'] ?? 0);
 
     if ($bookingId <= 0 || $propertyId <= 0) {
-        http_response_code(400);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'message' => 'ข้อมูลคำขอไม่ถูกต้อง'], JSON_UNESCAPED_UNICODE);
-        exit();
+        json_response(['success' => false, 'message' => 'ข้อมูลคำขอไม่ถูกต้อง'], 400);
     }
 
     // ตรวจสอบ booking
     $booking = Database::fetchOne(
-        'SELECT b.*, p.price AS annual_price FROM bookings b JOIN properties p ON p.id = b.property_id WHERE b.id = ? AND b.user_id = ? AND b.property_id = ?',
+        'SELECT b.id, b.user_id, b.property_id, b.booking_date, b.payment_status, b.booking_status, b.deposit_amount, b.total_amount, p.price AS annual_price FROM bookings b JOIN properties p ON p.id = b.property_id WHERE b.id = ? AND b.user_id = ? AND b.property_id = ?',
         [$bookingId, $userId, $propertyId]
     );
 
     if (!$booking) {
-        http_response_code(404);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'message' => 'ไม่พบบันทึกการจอง'], JSON_UNESCAPED_UNICODE);
-        exit();
+        json_response(['success' => false, 'message' => 'ไม่พบบันทึกการจอง'], 404);
     }
 
     if ((string)$booking['booking_status'] !== 'approved') {
-        http_response_code(400);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'message' => 'ต้องได้รับการอนุมัติจากเจ้าของก่อนชำระเต็มจำนวน'], JSON_UNESCAPED_UNICODE);
-        exit();
+        json_response(['success' => false, 'message' => 'ต้องได้รับการอนุมัติจากเจ้าของก่อนชำระเต็มจำนวน'], 400);
     }
 
     // ยอดคงเหลือ = total_amount - deposit_amount
@@ -72,54 +64,98 @@ if ($method === 'POST' && isset($_POST['full_payment'])) {
     $deposit = (int) $booking['deposit_amount'];
     $remain  = max(0, $total - $deposit);
 
-    // อัปโหลดสลิป
-    $slipImagePath = null;
-    if (isset($_FILES['slip_file']) && $_FILES['slip_file']['error'] === UPLOAD_ERR_OK) {
-        $uploadDir = APP_PATH . '/public/storage/uploads/slips';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
+    try {
+        // อัปโหลดสลิป
+        $slipImagePath = null;
+        if (isset($_FILES['slip_file']) && $_FILES['slip_file']['error'] === UPLOAD_ERR_OK) {
+            $uploadDir = APP_PATH . '/public/storage/uploads/slips';
+            if (!is_dir($uploadDir)) {
+                if (!mkdir($uploadDir, 0755, true)) {
+                    json_response(['success' => false, 'message' => 'ไม่สามารถสร้างโฟลเดอร์อัปโหลดได้'], 500);
+                }
+            }
 
-        $file = $_FILES['slip_file'];
-        $size = (int) $file['size'];
-        if ($size > 5 * 1024 * 1024) {
-            http_response_code(400);
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['success' => false, 'message' => 'ไฟล์มีขนาดเกิน 5MB'], JSON_UNESCAPED_UNICODE);
-            exit();
-        }
+            $file = $_FILES['slip_file'];
+            $fileTmpName = (string) ($file['tmp_name'] ?? '');
+            
+            if ($fileTmpName === '' || !is_uploaded_file($fileTmpName)) {
+                json_response(['success' => false, 'message' => 'ไฟล์อัปโหลดไม่ถูกต้อง'], 400);
+            }
 
-        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        $allowed = ['jpg','jpeg','png','gif','webp'];
-        if (!in_array($ext, $allowed, true)) {
-            http_response_code(400);
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['success' => false, 'message' => 'รองรับเฉพาะรูปภาพ'], JSON_UNESCAPED_UNICODE);
-            exit();
-        }
+            $size = (int) $file['size'];
+            if ($size <= 0 || $size > 5 * 1024 * 1024) {
+                json_response(['success' => false, 'message' => 'ไฟล์มีขนาดเกิน 5MB'], 400);
+            }
 
-        $newName = sprintf('fullpay_%d_%d_%s.%s', $userId, $propertyId, date('YmdHis'), $ext);
-        $path    = $uploadDir . '/' . $newName;
-        if (move_uploaded_file($file['tmp_name'], $path)) {
+            $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
+            $allowed = ['jpg','jpeg','png','gif','webp'];
+            if (!in_array($ext, $allowed, true)) {
+                json_response(['success' => false, 'message' => 'รองรับเฉพาะรูปภาพ (jpg, jpeg, png, gif, webp)'], 400);
+            }
+
+            // ตรวจสอบ MIME type
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $mime = $finfo->file($fileTmpName) ?: '';
+            $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (!in_array($mime, $allowedMimes, true)) {
+                json_response(['success' => false, 'message' => 'ไฟล์ไม่ใช่รูปภาพที่รองรับ'], 400);
+            }
+
+            // ตรวจสอบว่าเป็นรูปจริง
+            if (@getimagesize($fileTmpName) === false) {
+                json_response(['success' => false, 'message' => 'ไฟล์รูปภาพไม่ถูกต้อง'], 400);
+            }
+
+            $random = bin2hex(random_bytes(8));
+            $newName = sprintf('fullpay_%d_%d_%s_%s.%s', $userId, $propertyId, date('YmdHis'), $random, $ext);
+            $path    = $uploadDir . '/' . $newName;
+            
+            if (!move_uploaded_file($fileTmpName, $path)) {
+                app_log('full_payment_upload_failed', [
+                    'user_id' => $userId,
+                    'property_id' => $propertyId,
+                    'upload_path' => $path,
+                ]);
+                json_response(['success' => false, 'message' => 'อัปโหลดสลิปไม่สำเร็จ กรุณาลองใหม่'], 500);
+            }
+            
             $slipImagePath = '/storage/uploads/slips/' . $newName;
+        } else {
+            json_response(['success' => false, 'message' => 'กรุณาอัปโหลดสลิปก่อนยืนยัน'], 400);
         }
+
+        // ใช้ transaction เพื่อความปลอดภัย
+        Database::transaction(function () use ($bookingId, $userId, $propertyId, $remain, $slipImagePath) {
+            // เพิ่มรายการชำระเงินเต็มจำนวนใน payments
+            Database::execute(
+                'INSERT INTO payments (booking_id, user_id, property_id, payment_type, amount, slip_image, payment_status, payment_date, created_at) VALUES (?, ?, ?, "full_payment", ?, ?, "pending", CURDATE(), NOW())',
+                [$bookingId, $userId, $propertyId, $remain, $slipImagePath]
+            );
+
+            // อัปเดตสถานะการชำระเงินของ booking
+            Database::execute(
+                'UPDATE bookings SET payment_status = "full_paid", updated_at = NOW() WHERE id = ?',
+                [$bookingId]
+            );
+        });
+
+        app_log('full_payment_success', [
+            'user_id' => $userId,
+            'property_id' => $propertyId,
+            'booking_id' => $bookingId,
+        ]);
+
+        json_response(['success' => true, 'message' => 'บันทึกการชำระเต็มจำนวนแล้ว รอการตรวจสอบ']);
+    } catch (Throwable $e) {
+        app_log('full_payment_error', [
+            'user_id' => $userId,
+            'property_id' => $propertyId ?? null,
+            'booking_id' => $bookingId ?? null,
+            'error' => $e->getMessage(),
+        ]);
+
+        json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาดในการบันทึกการชำระเงิน'], 500);
     }
-
-    // เพิ่มรายการชำระเงินเต็มจำนวนใน payments
-    Database::execute(
-        'INSERT INTO payments (booking_id, user_id, property_id, payment_type, amount, slip_image, status, created_at) VALUES (?, ?, ?, "full_payment", ?, ?, "pending", NOW())',
-        [$bookingId, $userId, $propertyId, $remain, $slipImagePath]
-    );
-
-    // อัปเดตสถานะการชำระเงินของ booking
-    Database::execute(
-        'UPDATE bookings SET payment_status = "full_paid", updated_at = NOW() WHERE id = ?',
-        [$bookingId]
-    );
-
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['success' => true, 'message' => 'บันทึกการชำระเต็มจำนวนแล้ว รอการตรวจสอบ'], JSON_UNESCAPED_UNICODE);
-    exit();
 }
 
 // GET: แสดงหน้า
@@ -131,7 +167,7 @@ if ($propertyId <= 0 || $bookingId <= 0) {
 }
 
 $data = Database::fetchOne(
-    'SELECT b.*, p.title, p.location, p.price AS annual_price FROM bookings b JOIN properties p ON p.id = b.property_id WHERE b.id = ? AND b.user_id = ? AND b.property_id = ?',
+    'SELECT b.id, b.user_id, b.property_id, b.booking_date, b.payment_status, b.booking_status, b.deposit_amount, b.total_amount, p.title, p.location, p.price AS annual_price FROM bookings b JOIN properties p ON p.id = b.property_id WHERE b.id = ? AND b.user_id = ? AND b.property_id = ?',
     [$bookingId, $userId, $propertyId]
 );
 
@@ -183,6 +219,7 @@ $remain  = max(0, $total - $deposit);
 <script>
 const BOOKING_ID = <?php echo (int) $bookingId; ?>;
 const PROPERTY_ID = <?php echo (int) $propertyId; ?>;
+const CSRF_TOKEN = <?php echo json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
 async function submitFullPayment() {
     const fileInput = document.getElementById('slipFile');
@@ -191,8 +228,13 @@ async function submitFullPayment() {
         return;
     }
 
+    if (!confirm('ยืนยันว่าคุณได้ชำระเงินและอัปโหลดสลิปเรียบร้อยแล้ว?')) {
+        return;
+    }
+
     const fd = new FormData();
     fd.append('full_payment', '1');
+    fd.append('csrf', CSRF_TOKEN);
     fd.append('booking_id', String(BOOKING_ID));
     fd.append('property_id', String(PROPERTY_ID));
     fd.append('slip_file', fileInput.files[0]);

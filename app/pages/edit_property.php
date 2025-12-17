@@ -31,7 +31,7 @@ if ($propertyId <= 0) {
 }
 
 $property = Database::fetchOne(
-    'SELECT * FROM properties WHERE id = ? AND owner_id = ? LIMIT 1',
+    'SELECT id, owner_id, title, location, province, area, area_rai, area_ngan, area_sqwa, category, has_water, has_electric, soil_type, irrigation, price, status, is_active, available_from, available_to, description, main_image, created_at, updated_at FROM properties WHERE id = ? AND owner_id = ? LIMIT 1',
     [$propertyId, $userId]
 );
 if (!$property) {
@@ -40,7 +40,7 @@ if (!$property) {
 }
 
 $existingImages = Database::fetchAll(
-    'SELECT * FROM property_images WHERE property_id = ? ORDER BY display_order',
+    'SELECT id, property_id, image_url, display_order, created_at FROM property_images WHERE property_id = ? ORDER BY display_order',
     [$propertyId]
 );
 
@@ -303,7 +303,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
     // reload images when error
     $existingImages = Database::fetchAll(
-        'SELECT * FROM property_images WHERE property_id = ? ORDER BY display_order',
+        'SELECT id, property_id, image_url, display_order, created_at FROM property_images WHERE property_id = ? ORDER BY display_order',
         [$propertyId]
     );
 }

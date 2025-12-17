@@ -345,6 +345,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
             <div class="signin-footer">
                 <p>ยังไม่มีบัญชี? <a href="?page=signup">สมัครสมาชิก</a></p>
+                <p><a href="?page=forgot_password">ลืมรหัสผ่าน?</a></p>
             </div>
 
             <div class="demo-credentials">

@@ -8,21 +8,14 @@ if (!defined('APP_PATH')) {
 
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
+require_once APP_PATH . '/includes/ContractService.php';
+require_once APP_PATH . '/includes/NotificationService.php';
 
 app_session_start();
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// Helper for JSON response
-if (!function_exists('json_response')) {
-    function json_response(array $payload, int $statusCode = 200): void
-    {
-        http_response_code($statusCode);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit();
-    }
-}
+// json_response ถูกประกาศไว้ใน helpers.php แล้ว ไม่ต้องประกาศซ้ำ
 
 // ตรวจสอบการล็อกอิน
 $user = current_user();
@@ -152,12 +145,35 @@ if ($method === 'POST' && isset($_POST['create_contract'])) {
                 $startDate, $endDate,
                 $monthlyRent, $depositAmount, $totalAmount,
                 $termsAndConditions, $contractFile,
-                'draft'
+                'waiting_signature'
             ]
+        );
+
+        $contractId = (int)Database::lastInsertId();
+
+        // สร้างตารางการชำระรายเดือน
+        require_once APP_PATH . '/includes/PaymentService.php';
+        PaymentService::createMonthlySchedule(
+            $contractId,
+            $bookingId,
+            $userId,
+            $propertyId,
+            $monthlyRent,
+            $rentalPeriodMonths
+        );
+
+        // แจ้งเตือนเจ้าของพื้นที่
+        NotificationService::create(
+            $ownerId,
+            'contract',
+            'มีการสร้างสัญญาใหม่',
+            "มีการสร้างสัญญาเลขที่ {$contractNumber} สำหรับพื้นที่: " . ($booking['property_title'] ?? ''),
+            "?page=admin_dashboard"
         );
 
         app_log('contract_created', [
             'booking_id' => $bookingId,
+            'contract_id' => $contractId,
             'user_id' => $userId,
             'contract_number' => $contractNumber,
         ]);
@@ -219,13 +235,14 @@ if (!$booking) {
 
 // ตรวจสอบว่ามีสัญญาอยู่แล้วหรือไม่
 $existingContract = Database::fetchOne(
-    'SELECT * FROM contracts WHERE booking_id = ?',
+    'SELECT id, booking_id, contract_number, status FROM contracts WHERE booking_id = ?',
     [$bookingId]
 );
 
 if ($existingContract) {
-    // ถ้ามีสัญญาแล้ว redirect ไปหน้าดูสัญญา
-    redirect('?page=view_contract&id=' . (int) $existingContract['id']);
+    // ถ้ามีสัญญาแล้ว redirect ไปหน้าประวัติ (สามารถดูสัญญาได้จาก history)
+    flash('info', 'สัญญานี้ถูกสร้างไว้แล้ว คุณสามารถดูได้จากประวัติการเช่า');
+    redirect('?page=history');
 }
 
 $propertyTitle = $booking['property_title'] ?? '';

@@ -52,7 +52,7 @@ try {
     $row = Database::fetchOne('SELECT COUNT(*) AS count FROM bookings WHERE booking_status = "pending"');
     $stats['pending_bookings'] = (int) ($row['count'] ?? 0);
 
-    $row = Database::fetchOne('SELECT COUNT(*) AS count FROM bookings WHERE booking_status = "confirmed"');
+    $row = Database::fetchOne('SELECT COUNT(*) AS count FROM bookings WHERE booking_status = "approved"');
     $stats['confirmed_bookings'] = (int) ($row['count'] ?? 0);
 } catch (Throwable $e) {
     app_log('admin_stats_error', ['error' => $e->getMessage()]);
@@ -66,7 +66,7 @@ try {
             SUM(deposit_amount) AS total_deposit, 
             SUM(total_amount)   AS total_revenue 
         FROM bookings 
-        WHERE payment_status IN ("deposit_success", "paid")
+        WHERE payment_status IN ("deposit_success", "full_paid")
         '
     );
     $revenue = [
@@ -187,7 +187,9 @@ if (isset($_GET['msg'])) {
 
 // ---------- ดึงข้อมูลล่าสุด ----------
 try {
-    $recentProperties = Database::fetchAll('SELECT * FROM properties ORDER BY created_at DESC LIMIT 10');
+    $recentProperties = Database::fetchAll(
+        'SELECT id, owner_id, title, location, province, price, status, created_at FROM properties ORDER BY created_at DESC LIMIT 10'
+    );
 } catch (Throwable $e) {
     app_log('admin_recent_properties_error', ['error' => $e->getMessage()]);
     $recentProperties = [];
@@ -197,7 +199,8 @@ try {
     $recentBookings = Database::fetchAll(
         '
         SELECT 
-            b.*, 
+            b.id, b.user_id, b.property_id, b.booking_date, b.payment_status, b.booking_status,
+            b.deposit_amount, b.total_amount, b.slip_image, b.created_at,
             p.title  AS property_title, 
             u.firstname, 
             u.lastname, 
@@ -215,7 +218,9 @@ try {
 }
 
 try {
-    $allUsers = Database::fetchAll('SELECT * FROM users ORDER BY created_at DESC');
+    $allUsers = Database::fetchAll(
+        'SELECT id, username, email, firstname, lastname, phone, role, created_at FROM users ORDER BY created_at DESC'
+    );
 } catch (Throwable $e) {
     app_log('admin_all_users_error', ['error' => $e->getMessage()]);
     $allUsers = [];
@@ -225,7 +230,11 @@ try {
 <div class="admin-dashboard">
     <div class="admin-header">
         <h1>🎛️ แดชบอร์ดผู้ดูแลระบบ</h1>
-        <a href="?page=home" class="btn-back">← กลับหน้าหลัก</a>
+        <div class="header-actions">
+            <a href="?page=payment_verification" class="btn-action">ตรวจสอบการชำระเงิน</a>
+            <a href="?page=reports" class="btn-action">รายงานและสถิติ</a>
+            <a href="?page=home" class="btn-back">← กลับหน้าหลัก</a>
+        </div>
     </div>
 
     <?php if ($message): ?>
@@ -305,7 +314,7 @@ try {
     <div id="tab-properties" class="tab-content active">
         <div class="section-header">
             <h2>รายการพื้นที่เกษตร</h2>
-            <a href="?page=admin_add_property" class="btn btn-primary">+ เพิ่มพื้นที่ใหม่</a>
+            <a href="?page=add_property" class="btn btn-primary">+ เพิ่มพื้นที่ใหม่</a>
         </div>
         <div class="table-container">
             <table class="admin-table">
@@ -343,7 +352,7 @@ try {
                             <td><?= date('d/m/Y H:i', strtotime((string) $prop['created_at'])); ?></td>
                             <td class="actions">
                                 <a href="?page=detail&id=<?= (int) $prop['id']; ?>" class="btn-action view" title="ดูรายละเอียด">👁️</a>
-                                <a href="?page=admin_edit_property&id=<?= (int) $prop['id']; ?>" class="btn-action edit" title="แก้ไข">✏️</a>
+                                <a href="?page=edit_property&id=<?= (int) $prop['id']; ?>" class="btn-action edit" title="แก้ไข">✏️</a>
                                 <form method="POST" style="display:inline;" onsubmit="return confirm('ยืนยันการลบพื้นที่นี้?');">
                                     <input type="hidden" name="action" value="delete_property">
                                     <input type="hidden" name="property_id" value="<?= (int) $prop['id']; ?>">
@@ -399,8 +408,8 @@ try {
                                     <input type="hidden" name="booking_id" value="<?= (int) $booking['id']; ?>">
                                     <select name="booking_status" onchange="this.form.submit()" class="status-select">
                                         <option value="pending" <?= $booking['booking_status'] === 'pending'   ? 'selected' : ''; ?>>รอดำเนินการ</option>
-                                        <option value="confirmed" <?= $booking['booking_status'] === 'confirmed' ? 'selected' : ''; ?>>ยืนยันแล้ว</option>
-                                        <option value="completed" <?= $booking['booking_status'] === 'completed' ? 'selected' : ''; ?>>เสร็จสิ้น</option>
+                                        <option value="approved" <?= $booking['booking_status'] === 'approved' ? 'selected' : ''; ?>>อนุมัติแล้ว</option>
+                                        <option value="rejected" <?= $booking['booking_status'] === 'rejected' ? 'selected' : ''; ?>>ปฏิเสธ</option>
                                         <option value="cancelled" <?= $booking['booking_status'] === 'cancelled' ? 'selected' : ''; ?>>ยกเลิก</option>
                                     </select>
                                 </form>
@@ -413,8 +422,7 @@ try {
                                     <select name="payment_status" onchange="this.form.submit()" class="status-select">
                                         <option value="waiting" <?= $booking['payment_status'] === 'waiting'         ? 'selected' : ''; ?>>รอชำระ</option>
                                         <option value="deposit_success" <?= $booking['payment_status'] === 'deposit_success' ? 'selected' : ''; ?>>ชำระมัดจำแล้ว</option>
-                                        <option value="paid" <?= $booking['payment_status'] === 'paid'            ? 'selected' : ''; ?>>ชำระครบแล้ว</option>
-                                        <option value="failed" <?= $booking['payment_status'] === 'failed'          ? 'selected' : ''; ?>>ล้มเหลว</option>
+                                        <option value="full_paid" <?= $booking['payment_status'] === 'full_paid'            ? 'selected' : ''; ?>>ชำระครบแล้ว</option>
                                     </select>
                                 </form>
                             </td>

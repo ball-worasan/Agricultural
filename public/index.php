@@ -119,6 +119,49 @@ $routes = [
         'auth'  => true,
         'admin' => true,
     ],
+    'payment_verification' => [
+        'title' => 'ตรวจสอบการชำระเงิน',
+        'view'  => 'payment_verification',
+        'css'   => ['admin_dashboard.css'],
+        'auth'  => true,
+        'admin' => true,
+    ],
+    'notifications' => [
+        'title' => 'การแจ้งเตือน',
+        'view'  => 'notifications',
+        'css'   => ['history.css'],
+        'auth'  => true,
+    ],
+    'reports' => [
+        'title' => 'รายงานและสถิติ',
+        'view'  => 'reports',
+        'css'   => ['admin_dashboard.css'],
+        'auth'  => true,
+        'admin' => true,
+    ],
+    'forgot_password' => [
+        'title' => 'ลืมรหัสผ่าน',
+        'view'  => 'forgot_password',
+        'css'   => ['signin.css'],
+        'guest_only' => true,
+    ],
+    'reset_password' => [
+        'title' => 'รีเซ็ตรหัสผ่าน',
+        'view'  => 'reset_password',
+        'css'   => ['signin.css'],
+        'guest_only' => true,
+    ],
+    'advanced_search' => [
+        'title' => 'ค้นหาขั้นสูง',
+        'view'  => 'advanced_search',
+        'css'   => ['home.css'],
+    ],
+    'view_contract' => [
+        'title' => 'ดูสัญญา',
+        'view'  => 'view_contract',
+        'css'   => ['contract.css'],
+        'auth'  => true,
+    ],
 ];
 
 // ----------------------------

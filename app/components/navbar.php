@@ -27,6 +27,9 @@ $guestMenuItems = [];
 
 // เมนูผู้ใช้ล็อกอินแล้ว
 if ($isAuthenticated) {
+    require_once APP_PATH . '/includes/NotificationService.php';
+    $unreadCount = NotificationService::getUnreadCount((int)($user['id'] ?? 0));
+    
     $authMenuItems = [
         [
             'href'      => '?page=home',
@@ -45,6 +48,12 @@ if ($isAuthenticated) {
             'label'     => 'ประวัติการเช่าพื้นที่เกษตร',
             'page'      => 'history',
             'highlight' => false,
+        ],
+        [
+            'href'      => '?page=notifications',
+            'label'     => 'การแจ้งเตือน' . ($unreadCount > 0 ? " ({$unreadCount})" : ''),
+            'page'      => 'notifications',
+            'highlight' => $unreadCount > 0,
         ],
         [
             'href'      => '?page=profile',

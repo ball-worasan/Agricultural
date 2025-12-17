@@ -8,6 +8,7 @@ if (!defined('APP_PATH')) {
 
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
+require_once APP_PATH . '/includes/NotificationService.php';
 
 app_session_start();
 
@@ -102,6 +103,23 @@ if ($method === 'POST') {
                 [$propertyId, $bookingId]
             );
 
+            // ดึงข้อมูลผู้จองและชื่อพื้นที่
+            $bookingUser = Database::fetchOne(
+                'SELECT user_id FROM bookings WHERE id = ?',
+                [$bookingId]
+            );
+            $propertyInfo = Database::fetchOne(
+                'SELECT title FROM properties WHERE id = ?',
+                [$propertyId]
+            );
+
+            if ($bookingUser && $propertyInfo) {
+                NotificationService::notifyBookingApproved(
+                    (int)$bookingUser['user_id'],
+                    (string)$propertyInfo['title']
+                );
+            }
+
             app_log('booking_approved', [
                 'booking_id'  => $bookingId,
                 'property_id' => $propertyId,
@@ -128,6 +146,24 @@ if ($method === 'POST') {
                 ',
                 [$reason, $bookingId]
             );
+
+            // ดึงข้อมูลผู้จองและชื่อพื้นที่
+            $bookingUser = Database::fetchOne(
+                'SELECT user_id FROM bookings WHERE id = ?',
+                [$bookingId]
+            );
+            $propertyInfo = Database::fetchOne(
+                'SELECT title FROM properties WHERE id = ?',
+                [(int)$booking['property_id']]
+            );
+
+            if ($bookingUser && $propertyInfo) {
+                NotificationService::notifyBookingRejected(
+                    (int)$bookingUser['user_id'],
+                    (string)$propertyInfo['title'],
+                    $reason
+                );
+            }
 
             app_log('booking_rejected', [
                 'booking_id' => $bookingId,
@@ -161,7 +197,7 @@ if ($propertyId <= 0) {
 
 // ตรวจสอบว่าเป็นเจ้าของพื้นที่
 $property = Database::fetchOne(
-    'SELECT * FROM properties WHERE id = ? AND owner_id = ?',
+    'SELECT id, owner_id, title, location, province, price, status FROM properties WHERE id = ? AND owner_id = ?',
     [$propertyId, $userId]
 );
 
@@ -176,7 +212,9 @@ try {
     $bookings = Database::fetchAll(
         '
         SELECT 
-            b.*,
+            b.id, b.user_id, b.property_id, b.booking_date, b.rental_start_date, b.rental_end_date,
+            b.payment_status, b.booking_status, b.deposit_amount, b.total_amount,
+            b.slip_image, b.rejection_reason, b.created_at, b.updated_at,
             u.firstname,
             u.lastname,
             u.email,

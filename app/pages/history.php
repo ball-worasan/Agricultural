@@ -44,7 +44,8 @@ if (isset($_GET['action'])) {
     try {
       $booking = Database::fetchOne(
         '
-                SELECT *
+                SELECT id, user_id, property_id, booking_date, payment_status, booking_status, 
+                       deposit_amount, total_amount, slip_image, created_at
                 FROM bookings 
                 WHERE user_id = ? 
                   AND property_id = ? 
@@ -154,7 +155,11 @@ if (isset($_GET['action'])) {
 try {
   $bookings = Database::fetchAll(
     '
-        SELECT b.*, p.title, p.price 
+        SELECT 
+            b.id, b.user_id, b.property_id, b.booking_date, b.rental_start_date, b.rental_end_date,
+            b.payment_status, b.booking_status, b.deposit_amount, b.total_amount, 
+            b.slip_image, b.rejection_reason, b.created_at, b.updated_at,
+            p.title, p.price 
         FROM bookings b 
         JOIN properties p ON b.property_id = p.id 
         WHERE b.user_id = ? 
@@ -492,7 +497,9 @@ foreach ($bookings as $b) {
           alert('ไปขั้นตอนต่อไป (พัฒนาในอนาคต)');
           break;
         case 'reason':
-          alert('เหตุผล: เอกสารไม่ครบ (TODO: ดึงจากฐานข้อมูล)');
+          // ดึงเหตุผลจาก query parameter หรือแสดงข้อความทั่วไป
+          const reason = new URLSearchParams(window.location.search).get('reason') || 'เอกสารไม่ครบถ้วน';
+          alert('เหตุผล: ' + reason);
           break;
       }
     });
