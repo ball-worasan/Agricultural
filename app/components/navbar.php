@@ -1,9 +1,7 @@
 <?php
 // require APP_PATH . '/components/navbar.php';
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+app_session_start(); // ใช้ helper ตัวเดียวพอ (จะสร้าง CSRF token ให้ด้วย)
 
 // ตรวจจับหน้าปัจจุบันแบบ fallback
 $currentPage = $page ?? ($_GET['page'] ?? 'home');
@@ -17,8 +15,10 @@ $isAdmin = $isAuthenticated && $userRole === 'admin';
 
 // แสดงชื่อในปุ่มบัญชี ถ้าไม่มีใช้ default
 $displayName = 'บัญชีของฉัน';
+
 if ($isAuthenticated) {
-    $displayName = $user['name'] ?? $user['username'] ?? $displayName;
+    $fullName = trim((string)($user['firstname'] ?? '') . ' ' . (string)($user['lastname'] ?? ''));
+    $displayName = $fullName !== '' ? $fullName : (string)($user['username'] ?? $displayName);
 }
 
 // เตรียมเมนูตามสถานะล็อกอิน
@@ -62,8 +62,6 @@ if ($isAuthenticated) {
             'highlight' => true,
         ];
     }
-
-    $logoutUrl = '?page=' . urlencode($currentPage) . '&logout=1';
 } else {
     // เมนูผู้ใช้ guest
     $guestMenuItems = [
@@ -102,7 +100,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
     <div class="nav-inner">
         <div class="nav-left">
             <a href="?page=home" class="brand" aria-label="ไปหน้าหลัก">
-                ศิรินาถ · พื้นที่การเกษตรให้เช่า
+                สิริณัฐ · พื้นที่การเกษตรให้เช่า
             </a>
         </div>
 
@@ -132,6 +130,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
                         aria-label="เมนูบัญชีของ <?php echo e($displayName); ?>">
                         <?php echo e($displayName); ?>
                     </button>
+
                     <div
                         class="account-menu"
                         id="<?php echo e($accountMenuId); ?>"
@@ -139,6 +138,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
                         hidden
                         data-account-menu="true"
                         data-menu-root="account">
+
                         <?php foreach ($authMenuItems as $item): ?>
                             <?php
                             $isActive = ($item['page'] === $activePage);
@@ -159,13 +159,24 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
                             </a>
                         <?php endforeach; ?>
 
-                        <a
-                            class="menu-item danger"
-                            href="<?php echo e($logoutUrl ?? '?logout=1'); ?>"
-                            role="menuitem"
-                            data-menu-item="true">
-                            ออกจากระบบ
-                        </a>
+                        <!-- Logout: POST + CSRF -->
+                        <form
+                            method="post"
+                            action="?page=<?php echo e($currentPage); ?>"
+                            class="menu-item-form"
+                            data-menu-item="true"
+                            role="none">
+                            <input type="hidden" name="action" value="logout">
+                            <input type="hidden" name="csrf" value="<?php echo e(csrf_token()); ?>">
+
+                            <button
+                                type="submit"
+                                class="menu-item danger menu-btn"
+                                role="menuitem">
+                                ออกจากระบบ
+                            </button>
+                        </form>
+
                     </div>
                 <?php else: ?>
                     <button
@@ -179,6 +190,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
                         aria-label="เมนูบัญชีสำหรับผู้ใช้ทั่วไป">
                         เมนู
                     </button>
+
                     <div
                         class="account-menu"
                         id="<?php echo e($accountMenuId); ?>"
@@ -186,6 +198,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
                         hidden
                         data-account-menu="true"
                         data-menu-root="account">
+
                         <?php foreach ($guestMenuItems as $item): ?>
                             <?php
                             $isActive = ($item['page'] === $activePage);
@@ -223,7 +236,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
         if (!accountBtn || !accountMenu) return;
 
         const menuItems = Array.from(
-            accountMenu.querySelectorAll('[data-menu-item="true"]')
+            accountMenu.querySelectorAll('[data-menu-item="true"], .menu-btn')
         );
 
         const openMenu = () => {
@@ -241,29 +254,27 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
         const isMenuOpen = () => !accountMenu.hasAttribute('hidden');
 
         const focusFirstItem = () => {
-            if (menuItems.length > 0) {
-                menuItems[0].focus();
-            }
+            const first = menuItems.find(el => el && typeof el.focus === 'function');
+            if (first) first.focus();
         };
 
         const focusLastItem = () => {
-            if (menuItems.length > 0) {
-                menuItems[menuItems.length - 1].focus();
-            }
+            const last = [...menuItems].reverse().find(el => el && typeof el.focus === 'function');
+            if (last) last.focus();
         };
 
         const focusNextItem = (current) => {
             if (!menuItems.length) return;
             const index = menuItems.indexOf(current);
             const nextIndex = (index + 1) % menuItems.length;
-            menuItems[nextIndex].focus();
+            menuItems[nextIndex]?.focus?.();
         };
 
         const focusPrevItem = (current) => {
             if (!menuItems.length) return;
             const index = menuItems.indexOf(current);
             const prevIndex = (index - 1 + menuItems.length) % menuItems.length;
-            menuItems[prevIndex].focus();
+            menuItems[prevIndex]?.focus?.();
         };
 
         // Toggle เมนูเมื่อคลิกปุ่มบัญชี
@@ -281,9 +292,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
         accountBtn.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                if (!isMenuOpen()) {
-                    openMenu();
-                }
+                if (!isMenuOpen()) openMenu();
                 focusFirstItem();
             }
         });
@@ -306,7 +315,10 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
 
         // ควบคุมคีย์บอร์ดภายในเมนู (ArrowUp/Down, Home/End)
         accountMenu.addEventListener('keydown', (e) => {
-            const currentItem = e.target.closest('[data-menu-item="true"]');
+            const currentItem =
+                e.target.closest('[data-menu-item="true"]') ||
+                e.target.closest('.menu-btn');
+
             if (!currentItem) return;
 
             switch (e.key) {
@@ -334,7 +346,7 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
             }
         });
 
-        // คลิกเมนู item → ปิดเมนูให้เลย
+        // คลิกเมนู item → ปิดเมนูให้เลย (รวมปุ่ม logout ด้วย)
         accountMenu.addEventListener('click', (e) => {
             const disabledItem = e.target.closest('[data-disabled="true"]');
             if (disabledItem) {
@@ -343,7 +355,10 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
                 return;
             }
 
-            const menuItem = e.target.closest('[data-menu-item="true"]');
+            const menuItem =
+                e.target.closest('[data-menu-item="true"]') ||
+                e.target.closest('.menu-btn');
+
             if (menuItem && !disabledItem) {
                 closeMenu();
             }
@@ -365,12 +380,8 @@ $accountMenuId = 'accountMenu-' . $navInstanceId;
             searchInput.addEventListener('input', (e) => {
                 const value = e.target.value.trim();
 
-                if (searchTimeout) {
-                    clearTimeout(searchTimeout);
-                }
-                searchTimeout = setTimeout(() => {
-                    emitSearchEvent(value);
-                }, 250);
+                if (searchTimeout) clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => emitSearchEvent(value), 250);
             });
         }
     })();

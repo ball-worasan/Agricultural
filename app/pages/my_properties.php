@@ -268,21 +268,30 @@ $statusClass = [
         'use strict';
 
         window.confirmDelete = function(propertyId, propertyTitle) {
-            var msg = 'คุณต้องการลบ "' + String(propertyTitle) + '" ใช่หรือไม่?\n\nการลบจะไม่สามารถกู้คืนได้';
-            if (!confirm(msg)) {
-                return;
-            }
+            var msg =
+                'คุณต้องการลบ "' +
+                String(propertyTitle) +
+                '" ใช่หรือไม่?\n\nการลบจะไม่สามารถกู้คืนได้';
+
+            if (!confirm(msg)) return;
 
             var form = document.createElement('form');
             form.method = 'POST';
             form.action = '?page=delete_property';
 
-            var input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'property_id';
-            input.value = String(propertyId);
+            var idInput = document.createElement('input');
+            idInput.type = 'hidden';
+            idInput.name = 'property_id';
+            idInput.value = String(propertyId);
+            form.appendChild(idInput);
 
-            form.appendChild(input);
+            // ✅ CSRF token (ต้องมี!)
+            var csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf';
+            csrfInput.value = '<?= e(csrf_token()); ?>';
+            form.appendChild(csrfInput);
+
             document.body.appendChild(form);
             form.submit();
         };

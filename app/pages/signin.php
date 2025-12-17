@@ -2,90 +2,108 @@
 
 declare(strict_types=1);
 
+// ให้ไฟล์นี้ทำงานได้ทั้ง include และเปิดตรง ๆ (dev)
+if (!defined('APP_PATH')) {
+    define('APP_PATH', dirname(__DIR__, 2));
+}
+
 require_once APP_PATH . '/config/Database.php';
 require_once APP_PATH . '/includes/helpers.php';
 
 app_session_start();
 
-// ถ้ามีคนเรียกไฟล์นี้ตรง ๆ นอก router
+// ถ้าล็อกอินแล้ว ไม่ต้องเข้าหน้านี้
 if (is_authenticated()) {
     redirect('?page=home');
 }
 
 /**
- * brute-force protection แบบง่าย ด้วย session
+ * brute-force protection แบบ session (ปรับให้ "window" เคลียร์จริง)
  */
 if (!class_exists('LoginRateLimiter')) {
     class LoginRateLimiter
     {
-        private const SESSION_ATTEMPTS     = 'login_attempts';
-        private const SESSION_LAST_ATTEMPT = 'last_login_attempt';
-        private const MAX_ATTEMPTS   = 5;
-        private const WINDOW_SECONDS = 60; // 1 นาที
+        private const SESSION_ATTEMPTS = 'login_attempts';
+        private const SESSION_WINDOW_START = 'login_window_start';
+
+        private const MAX_ATTEMPTS = 5;
+        private const WINDOW_SECONDS = 60;
+
+        private function resetIfExpired(int $now): void
+        {
+            $windowStart = isset($_SESSION[self::SESSION_WINDOW_START])
+                ? (int) $_SESSION[self::SESSION_WINDOW_START]
+                : 0;
+
+            // ถ้ายังไม่เคยเริ่ม window หรือ window หมดอายุ -> reset
+            if ($windowStart <= 0 || ($now - $windowStart) >= self::WINDOW_SECONDS) {
+                $_SESSION[self::SESSION_WINDOW_START] = $now;
+                $_SESSION[self::SESSION_ATTEMPTS] = 0;
+            }
+        }
 
         public function canAttempt(): bool
         {
+            $now = time();
+            $this->resetIfExpired($now);
+
             $attempts = isset($_SESSION[self::SESSION_ATTEMPTS])
                 ? (int) $_SESSION[self::SESSION_ATTEMPTS]
                 : 0;
 
-            $last = isset($_SESSION[self::SESSION_LAST_ATTEMPT])
-                ? (int) $_SESSION[self::SESSION_LAST_ATTEMPT]
-                : 0;
-
-            $now = time();
-
-            if ($attempts >= self::MAX_ATTEMPTS && ($now - $last) < self::WINDOW_SECONDS) {
-                return false;
-            }
-
-            return true;
+            return $attempts < self::MAX_ATTEMPTS;
         }
 
         public function registerFailedAttempt(): void
         {
+            $now = time();
+            $this->resetIfExpired($now);
+
             $current = isset($_SESSION[self::SESSION_ATTEMPTS])
                 ? (int) $_SESSION[self::SESSION_ATTEMPTS]
                 : 0;
 
-            $_SESSION[self::SESSION_ATTEMPTS]     = $current + 1;
-            $_SESSION[self::SESSION_LAST_ATTEMPT] = time();
+            $_SESSION[self::SESSION_ATTEMPTS] = $current + 1;
+
+            // ถ้าเพิ่งเริ่ม window ให้ set start
+            if (empty($_SESSION[self::SESSION_WINDOW_START])) {
+                $_SESSION[self::SESSION_WINDOW_START] = $now;
+            }
         }
 
         public function reset(): void
         {
-            $_SESSION[self::SESSION_ATTEMPTS]     = 0;
-            $_SESSION[self::SESSION_LAST_ATTEMPT] = time();
+            // login ผ่าน -> เคลียร์ทุกอย่าง
+            unset($_SESSION[self::SESSION_ATTEMPTS], $_SESSION[self::SESSION_WINDOW_START]);
         }
 
         public function remainingWaitSeconds(): int
         {
+            $now = time();
+            $this->resetIfExpired($now);
+
             $attempts = isset($_SESSION[self::SESSION_ATTEMPTS])
                 ? (int) $_SESSION[self::SESSION_ATTEMPTS]
                 : 0;
-
-            $last = isset($_SESSION[self::SESSION_LAST_ATTEMPT])
-                ? (int) $_SESSION[self::SESSION_LAST_ATTEMPT]
-                : 0;
-
-            $now = time();
 
             if ($attempts < self::MAX_ATTEMPTS) {
                 return 0;
             }
 
-            $diff = $now - $last;
-            if ($diff >= self::WINDOW_SECONDS) {
-                return 0;
-            }
+            $windowStart = isset($_SESSION[self::SESSION_WINDOW_START])
+                ? (int) $_SESSION[self::SESSION_WINDOW_START]
+                : 0;
 
-            return self::WINDOW_SECONDS - $diff;
+            $elapsed = $now - $windowStart;
+            $remain = self::WINDOW_SECONDS - $elapsed;
+
+            return $remain > 0 ? $remain : 0;
         }
     }
 }
 
 /**
- * จัดการอ่านข้อมูล user จาก DB
+ * User repository
  */
 if (!class_exists('UserRepository')) {
     class UserRepository
@@ -93,9 +111,9 @@ if (!class_exists('UserRepository')) {
         public function findByUsername(string $username): ?array
         {
             $user = Database::fetchOne(
-                'SELECT id, username, email, firstname, lastname, role, password 
-                 FROM users 
-                 WHERE username = ? 
+                'SELECT id, username, email, firstname, lastname, role, password
+                 FROM users
+                 WHERE username = ?
                  LIMIT 1',
                 [$username]
             );
@@ -111,7 +129,6 @@ if (!class_exists('UserRepository')) {
                     [$userId]
                 );
             } catch (Throwable $e) {
-                // ไม่ต้องทำอะไรต่อ ปล่อยเงียบ แค่ log
                 app_log('update_last_login_failed', [
                     'user_id' => $userId,
                     'error'   => $e->getMessage(),
@@ -127,15 +144,12 @@ if (!class_exists('UserRepository')) {
 if (!class_exists('AuthService')) {
     class AuthService
     {
-        /** @var UserRepository */
-        private $users;
-
-        /** @var LoginRateLimiter */
-        private $rateLimiter;
+        private UserRepository $users;
+        private LoginRateLimiter $rateLimiter;
 
         public function __construct(UserRepository $users, LoginRateLimiter $rateLimiter)
         {
-            $this->users       = $users;
+            $this->users = $users;
             $this->rateLimiter = $rateLimiter;
         }
 
@@ -154,7 +168,7 @@ if (!class_exists('AuthService')) {
                 ];
             }
 
-            // รูปแบบ username เบสิก (ไม่ leak ว่าผิด pattern หรือไม่)
+            // เบสิก validate username (ไม่ leak รายละเอียด)
             if (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $username)) {
                 return [
                     'success' => false,
@@ -174,7 +188,7 @@ if (!class_exists('AuthService')) {
                 ];
             }
 
-            if (!$user || !password_verify($password, $user['password'])) {
+            if (!$user || !isset($user['password']) || !password_verify($password, (string)$user['password'])) {
                 $this->rateLimiter->registerFailedAttempt();
 
                 return [
@@ -197,28 +211,30 @@ if (!class_exists('AuthService')) {
 }
 
 $rateLimiter = new LoginRateLimiter();
-$userRepo    = new UserRepository();
-$auth        = new AuthService($userRepo, $rateLimiter);
+$userRepo = new UserRepository();
+$auth = new AuthService($userRepo, $rateLimiter);
 
 // ---------- Controller: POST → PRG ----------
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // เก็บ input ก่อนเผื่อ redirect กลับ
-    store_old_input($_POST);
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $username = isset($_POST['username']) ? (string) $_POST['username'] : '';
+    $password = isset($_POST['password']) ? (string) $_POST['password'] : '';
+
+    // อย่า store_old_input ทั้งก้อน เพราะมันจะ “เก็บ password” ด้วย
+    store_old_input([
+        'username' => $username,
+    ]);
+
+    // CSRF (เอากลับมาเถอะ)
+    csrf_require();
 
     if (!$rateLimiter->canAttempt()) {
         $wait = $rateLimiter->remainingWaitSeconds();
         $wait = $wait > 0 ? $wait : 10;
 
-        $msg = 'พยายามเข้าสู่ระบบหลายครั้งเกินไป กรุณาลองใหม่อีกครั้งใน ' . $wait . ' วินาที';
-        flash('error', $msg);
+        flash('error', 'พยายามเข้าสู่ระบบหลายครั้งเกินไป กรุณาลองใหม่อีกครั้งใน ' . $wait . ' วินาที');
         redirect('?page=signin');
     }
-
-    // CSRF verification removed per request
-
-    $username = isset($_POST['username']) ? (string) $_POST['username'] : '';
-    $password = isset($_POST['password']) ? (string) $_POST['password'] : '';
 
     $result = $auth->login($username, $password);
 
@@ -229,7 +245,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         flash('error', $message);
 
-        // log เมื่อ login fail
         app_log('login_failed', [
             'username' => $username,
             'ip'       => $_SERVER['REMOTE_ADDR'] ?? null,
@@ -238,8 +253,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('?page=signin');
     }
 
-    // success
-    $user = $result['user'];
+    $user = $result['user'] ?? null;
+    if (!is_array($user) || empty($user['id'])) {
+        flash('error', 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ');
+        redirect('?page=signin');
+    }
 
     // ป้องกัน session fixation
     if (session_status() === PHP_SESSION_ACTIVE) {
@@ -247,24 +265,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $_SESSION['user'] = [
-        'id'        => $user['id'],
-        'username'  => $user['username'],
-        'email'     => $user['email'],
-        'firstname' => $user['firstname'],
-        'lastname'  => $user['lastname'],
-        'role'      => $user['role'],
+        'id'        => (int)$user['id'],
+        'username'  => (string)($user['username'] ?? ''),
+        'email'     => (string)($user['email'] ?? ''),
+        'firstname' => (string)($user['firstname'] ?? ''),
+        'lastname'  => (string)($user['lastname'] ?? ''),
+        'role'      => (string)($user['role'] ?? 'user'),
     ];
 
-    // update last_login_at
     $userRepo->updateLastLogin((int) $user['id']);
 
-    // ล้าง old input ไม่ให้ติดหน้าอื่น
     $_SESSION['_old_input'] = [];
 
-    // log success
     app_log('login_success', [
-        'user_id'  => $user['id'],
-        'username' => $user['username'],
+        'user_id'  => (int)$user['id'],
+        'username' => (string)($user['username'] ?? ''),
         'ip'       => $_SERVER['REMOTE_ADDR'] ?? null,
     ]);
 
@@ -273,17 +288,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------- View ----------
-
 ?>
 <div class="signin-container">
     <div class="signin-wrapper">
         <div class="signin-content">
             <div class="signin-header">
                 <h1>เข้าสู่ระบบ</h1>
-                <p>ยินดีต้อนรับกลับสู่พื้นที่เกษตรของศิรินาถ</p>
+                <p>ยินดีต้อนรับกลับสู่พื้นที่เกษตรของสิริณัฐ</p>
             </div>
 
             <form action="?page=signin" method="POST" class="signin-form" novalidate>
+                <!-- CSRF -->
+                <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
+
                 <div class="form-group">
                     <label for="username">ชื่อผู้ใช้</label>
                     <input
@@ -386,6 +403,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 setTimeout(function() {
                     var inputs = signinForm.querySelectorAll('input');
                     for (var i = 0; i < inputs.length; i++) {
+                        // กัน user แก้ค่าระหว่างส่ง
                         inputs[i].disabled = true;
                     }
                 }, 100);

@@ -275,7 +275,7 @@ table.booking-table tbody tr:nth-child(even) {
 }
 
 .badge[data-status="deposit_success"]::before {
-  content: "✅ ";
+  content: "";
 }
 
 .badge[data-status="pending"]::before {

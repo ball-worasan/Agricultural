@@ -446,6 +446,23 @@ $paymentClass = [
                                 </button>
                             </div>
                         <?php endif; ?>
+
+                        <?php if ($bookingStatus === 'approved'): ?>
+                            <div class="booking-actions">
+                                <a
+                                    class="btn-action approve"
+                                    href="?page=contract&booking_id=<?= $bid; ?>">
+                                    📄 สร้างสัญญา
+                                </a>
+                                <?php if ($paymentStatus !== 'full_paid'): ?>
+                                <a
+                                    class="btn-action"
+                                    href="?page=full_payment&property_id=<?= (int)$propertyId; ?>&booking_id=<?= $bid; ?>">
+                                    💳 ชำระเต็มจำนวน
+                                </a>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -512,7 +529,7 @@ $paymentClass = [
                 const data = await res.json();
 
                 if (data.success) {
-                    alert('✅ ' + data.message);
+                    alert('' + data.message);
                     window.location.reload();
                 } else {
                     alert('⚠️ ' + (data.message || 'เกิดข้อผิดพลาด'));
@@ -548,7 +565,7 @@ $paymentClass = [
                 const data = await res.json();
 
                 if (data.success) {
-                    alert('✅ ' + data.message);
+                    alert('' + data.message);
                     window.location.reload();
                 } else {
                     alert('⚠️ ' + (data.message || 'เกิดข้อผิดพลาด'));

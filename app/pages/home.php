@@ -2,16 +2,11 @@
 
 declare(strict_types=1);
 
-// หน้า list พื้นที่เกษตร: ดึง properties + รูป + เตรียมข้อมูลให้ JS filter
-if (!defined('APP_PATH')) {
-    define('APP_PATH', dirname(__DIR__, 2));
-}
-
+// home.php ถูก include จาก index.php แล้ว (มี helpers + session + navbar)
+// แต่ Database ยังต้อง require เอง ถ้า index.php ไม่ได้ require ไว้
 require_once APP_PATH . '/config/Database.php';
-require_once APP_PATH . '/includes/helpers.php';
 
-app_session_start();
-
+// current_user() จะเรียก session ให้เองผ่าน helpers.php
 $user   = current_user();
 $userId = isset($user['id']) ? (int) $user['id'] : null;
 
@@ -56,22 +51,38 @@ $items            = [];
 $imagesByProperty = [];
 
 try {
-    $limit  = PROPERTIES_PER_PAGE;
+    $limit  = (int) PROPERTIES_PER_PAGE;
     $offset = max(0, (int) $offset);
 
-    $items = Database::fetchAll(
-        "SELECT 
+    // ใช้ prepared statement สำหรับ LIMIT/OFFSET แบบปลอดภัย
+    $pdo = Database::connection();
+
+    $sql = "
+        SELECT 
             id, owner_id, title, location, province, category,
             has_water, has_electric, price, status,
             main_image, description, created_at
         FROM properties
         {$whereBase}
         ORDER BY created_at DESC
-        LIMIT {$offset}, {$limit}"
-    );
+        LIMIT :offset, :limit
+    ";
 
+    $stmt = $pdo->prepare($sql);
+    if ($stmt === false) {
+        throw new RuntimeException('Failed to prepare home list query');
+    }
+
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+    $stmt->execute();
+
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // โหลดรูปทั้งหมดของ property ที่อยู่ในหน้านี้
     if (!empty($items)) {
-        $ids = array_column($items, 'id');
+        $ids = array_map('intval', array_column($items, 'id'));
+        $ids = array_values(array_filter($ids, fn($v) => $v > 0));
 
         if (!empty($ids)) {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
@@ -87,16 +98,16 @@ try {
             foreach ($allImages as $img) {
                 $pid = isset($img['property_id']) ? (int) $img['property_id'] : 0;
                 if ($pid <= 0) continue;
-                if (!isset($imagesByProperty[$pid])) {
-                    $imagesByProperty[$pid] = [];
-                }
-                $imagesByProperty[$pid][] = $img['image_url'];
+
+                $imagesByProperty[$pid] ??= [];
+                $imagesByProperty[$pid][] = (string)($img['image_url'] ?? '');
             }
         }
     }
 } catch (Throwable $e) {
     app_log('home_page_query_error', ['message' => $e->getMessage()]);
     $items = [];
+    $imagesByProperty = [];
 }
 
 // รายชื่อจังหวัด (แทนการเขียน option ยาว ๆ)
@@ -181,12 +192,7 @@ $thaiProvinces = [
 ];
 
 // category ที่มีในระบบ (ตรงกับ DB)
-$categories = [
-    'ไร่นา',
-    'สวนผลไม้',
-    'แปลงผัก',
-    'เลี้ยงสัตว์',
-];
+$categories = ['ไร่นา', 'สวนผลไม้', 'แปลงผัก', 'เลี้ยงสัตว์'];
 
 ?>
 <div class="home-container">
@@ -260,9 +266,7 @@ $categories = [
             <?php foreach ($items as $item):
 
                 $propertyId = isset($item['id']) ? (int) $item['id'] : 0;
-                if ($propertyId <= 0) {
-                    continue;
-                }
+                if ($propertyId <= 0) continue;
 
                 $priceRaw   = isset($item['price']) ? (int) $item['price'] : 0;
                 $depositRaw = (int) ceil($priceRaw / 12); // สมมติให้มัดจำ ~ 1 เดือน
@@ -274,12 +278,11 @@ $categories = [
 
                 $cardClass = $isBooked ? 'item-card booked' : 'item-card';
 
-                $images    = isset($imagesByProperty[$propertyId]) ? $imagesByProperty[$propertyId] : [];
-                $mainImage = isset($item['main_image']) && $item['main_image']
-                    ? (string) $item['main_image']
-                    : (!empty($images) ? (string) $images[0] : 'https://via.placeholder.com/400x300?text=No+Image');
+                $images    = $imagesByProperty[$propertyId] ?? [];
+                $mainImage = (!empty($item['main_image']) ? (string) $item['main_image'] : '')
+                    ?: (!empty($images) ? (string) $images[0] : 'https://via.placeholder.com/400x300?text=No+Image');
 
-                $createdAt   = isset($item['created_at']) ? (string) $item['created_at'] : '';
+                $createdAt = isset($item['created_at']) ? (string) $item['created_at'] : '';
                 try {
                     $dateObj = $createdAt !== '' ? new DateTimeImmutable($createdAt) : now();
                 } catch (Exception $e) {
@@ -312,18 +315,10 @@ $categories = [
                 $titleLower = mb_strtolower($titleText, 'UTF-8');
 
                 if (empty($item['category'])) {
-                    if (mb_strpos($titleLower, 'ไร่') !== false) {
-                        $tags[] = 'ไร่นา';
-                    }
-                    if (mb_strpos($titleLower, 'สวน') !== false) {
-                        $tags[] = 'สวนผลไม้';
-                    }
-                    if (mb_strpos($titleLower, 'ผัก') !== false) {
-                        $tags[] = 'แปลงผัก';
-                    }
-                    if (mb_strpos($titleLower, 'เลี้ยง') !== false) {
-                        $tags[] = 'เลี้ยงสัตว์';
-                    }
+                    if (mb_strpos($titleLower, 'ไร่') !== false) $tags[] = 'ไร่นา';
+                    if (mb_strpos($titleLower, 'สวน') !== false) $tags[] = 'สวนผลไม้';
+                    if (mb_strpos($titleLower, 'ผัก') !== false) $tags[] = 'แปลงผัก';
+                    if (mb_strpos($titleLower, 'เลี้ยง') !== false) $tags[] = 'เลี้ยงสัตว์';
                 }
 
                 if ((!isset($item['has_water']) || (int) $item['has_water'] !== 1) && mb_strpos($descLower, 'น้ำ') !== false) {
@@ -336,7 +331,7 @@ $categories = [
                     $tags[] = 'ไฟฟ้าพร้อมใช้';
                 }
 
-                $tagsAttr = implode(',', array_unique($tags));
+                $tagsAttr = implode(',', array_values(array_unique($tags)));
                 $province = isset($item['province']) ? (string) $item['province'] : '';
             ?>
                 <a
@@ -344,8 +339,8 @@ $categories = [
                     class="<?= e($cardClass); ?>"
                     style="text-decoration: none; color: inherit;"
                     data-province="<?= e($province); ?>"
-                    data-price="<?= $priceRaw; ?>"
-                    data-deposit="<?= $depositRaw; ?>"
+                    data-price="<?= (int)$priceRaw; ?>"
+                    data-deposit="<?= (int)$depositRaw; ?>"
                     data-date="<?= e($dataDate); ?>"
                     data-tags="<?= e($tagsAttr); ?>">
                     <div class="card-badges">
@@ -370,7 +365,7 @@ $categories = [
                     <div class="item-details">
                         <h3 class="item-title"><?= e($titleText); ?></h3>
                         <p class="item-location">
-                            <?= e($item['location'] ?? ''); ?><?= $province !== '' ? ', ' . e($province) : ''; ?>
+                            <?= e((string)($item['location'] ?? '')); ?><?= $province !== '' ? ', ' . e($province) : ''; ?>
                         </p>
 
                         <div class="item-meta">
@@ -397,7 +392,7 @@ $categories = [
             <?php endif; ?>
 
             <span class="page-info">
-                หน้า <?= $currentPage; ?> / <?= $totalPages; ?>
+                หน้า <?= (int)$currentPage; ?> / <?= (int)$totalPages; ?>
             </span>
 
             <?php if ($currentPage < $totalPages): ?>
@@ -416,9 +411,17 @@ $categories = [
         const priceSelect = document.getElementById('price');
         const sortSelect = document.getElementById('sort');
         const tagSelect = document.getElementById('tag');
-        const container = document.getElementById('itemsContainer');
 
-        if (!container) {
+        const container = document.getElementById('itemsContainer');
+        const emptyEl = document.getElementById('homeEmptyState');
+
+        if (!container) return;
+
+        // ถ้าไม่มีรายการเลย (หน้าโล่ง / มีแต่ empty state แบบ "ยังไม่มีพื้นที่")
+        // อย่าโชว์ empty state ของ "ผลลัพธ์การกรอง"
+        const items = Array.from(container.querySelectorAll('.item-card'));
+        if (items.length === 0) {
+            if (emptyEl) emptyEl.hidden = true;
             return;
         }
 
@@ -430,16 +433,14 @@ $categories = [
         const queryInput = document.getElementById('globalSearch');
         const query = ((queryInput && queryInput.value) || globalSearchText || '').trim().toLowerCase();
 
-        const items = Array.from(container.querySelectorAll('.item-card'));
-
         items.forEach((item) => {
             let showItem = true;
 
             if (query) {
                 const titleEl = item.querySelector('.item-title');
                 const locationEl = item.querySelector('.item-location');
-                const title = titleEl ? titleEl.textContent.toLowerCase() : '';
-                const location = locationEl ? locationEl.textContent.toLowerCase() : '';
+                const title = titleEl ? (titleEl.textContent || '').toLowerCase() : '';
+                const location = locationEl ? (locationEl.textContent || '').toLowerCase() : '';
 
                 if (!title.includes(query) && !location.includes(query)) {
                     showItem = false;
@@ -448,33 +449,23 @@ $categories = [
 
             if (provinceFilter) {
                 const itemProvince = item.getAttribute('data-province') || '';
-                if (itemProvince !== provinceFilter) {
-                    showItem = false;
-                }
+                if (itemProvince !== provinceFilter) showItem = false;
             }
 
             if (priceFilter) {
-                const itemPriceAttr = item.getAttribute('data-price') || '0';
-                const itemPrice = parseInt(itemPriceAttr, 10) || 0;
-
+                const itemPrice = parseInt(item.getAttribute('data-price') || '0', 10) || 0;
                 const parts = priceFilter.split('-');
                 if (parts.length === 2) {
                     const minPrice = parseInt(parts[0], 10) || 0;
                     const maxPrice = parseInt(parts[1], 10) || 0;
-
-                    if (itemPrice < minPrice || itemPrice > maxPrice) {
-                        showItem = false;
-                    }
+                    if (itemPrice < minPrice || itemPrice > maxPrice) showItem = false;
                 }
             }
 
             if (tagFilter) {
                 const tagsRaw = (item.getAttribute('data-tags') || '').toLowerCase();
-                const tagsArr = tagsRaw.split(',').map((t) => t.trim()).filter(Boolean);
-
-                if (!tagsArr.includes(tagFilter.toLowerCase())) {
-                    showItem = false;
-                }
+                const tagsArr = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+                if (!tagsArr.includes(tagFilter.toLowerCase())) showItem = false;
             }
 
             item.style.display = showItem ? 'flex' : 'none';
@@ -483,16 +474,10 @@ $categories = [
         const visibleItems = items.filter((item) => item.style.display !== 'none');
 
         if (!visibleItems.length) {
-            if (typeof showEmptyState === 'function') {
-                showEmptyState(
-                    'itemsContainer',
-                    '🔍',
-                    'ไม่พบพื้นที่ที่ตรงกับเงื่อนไข',
-                    'ลองปรับเปลี่ยนตัวกรองเพื่อค้นหาพื้นที่เกษตรอื่น'
-                );
-            }
+            if (emptyEl) emptyEl.hidden = false;
             return;
         }
+        if (emptyEl) emptyEl.hidden = true;
 
         // sort เฉพาะ items ที่ยังแสดงอยู่
         visibleItems.sort((a, b) => {
@@ -521,13 +506,10 @@ $categories = [
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        // lazy load รูปแบบง่าย ๆ
-        document
-            .querySelectorAll('img[data-src]')
-            .forEach((img) => {
-                img.src = img.getAttribute('data-src');
-                img.removeAttribute('data-src');
-            });
+        // ใช้ระบบ lazy loading จาก utilities.js (ถ้ามี)
+        if (typeof initLazyLoading === 'function') {
+            initLazyLoading();
+        }
 
         // ฟัง event จาก navbar (global search)
         window.addEventListener('global:search-change', (event) => {
@@ -538,12 +520,6 @@ $categories = [
             }
             filterItems();
         });
-
-        // fallback: ถ้าไม่ใช้ global event ก็ยังใช้ input ตรง ๆ ได้
-        const globalSearch = document.getElementById('globalSearch');
-        if (globalSearch) {
-            globalSearch.addEventListener('input', filterItems);
-        }
 
         // เรียกครั้งแรกให้ state ตรงกับ default
         filterItems();

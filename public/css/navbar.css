@@ -218,6 +218,55 @@
   background: transparent;
 }
 
+/* ============================
+   Logout (POST + CSRF) support
+   ทำให้ <form> + <button> เนียนเหมือน <a class="menu-item">
+   ============================ */
+.account-menu .menu-item-form {
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+
+.account-menu .menu-item-form .menu-btn {
+  width: 100%;
+  display: block;
+
+  /* ให้หน้าตาเหมือน .menu-item */
+  padding: 0.625rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  text-align: left;
+
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+
+  transition: all 0.15s ease;
+}
+
+/* hover เหมือนเมนู item */
+.account-menu .menu-item-form .menu-btn:hover {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+/* danger theme เหมือนเดิม */
+.account-menu .menu-item-form .menu-btn.danger {
+  color: var(--status-sold-text);
+}
+
+.account-menu .menu-item-form .menu-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* โฟกัสด้วยคีย์บอร์ดให้เหมือนปุ่มอื่น ๆ */
+.account-menu .menu-item-form .menu-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .nav-inner {

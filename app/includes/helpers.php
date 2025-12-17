@@ -2,24 +2,23 @@
 
 declare(strict_types=1);
 
+// ----------------------------
+// Polyfill for IDE (บางที intelephense งอแง)
+// ----------------------------
 if (!defined('JSON_UNESCAPED_UNICODE')) {
-    // ค่านี้ของ JSON_UNESCAPED_UNICODE คือ 256 (ตาม PHP)
     define('JSON_UNESCAPED_UNICODE', 256);
 }
 
-/**
- * Start session ถ้ายังไม่ได้เริ่ม
- */
+// ----------------------------
+// Session
+// ----------------------------
 if (!function_exists('app_session_start')) {
     function app_session_start(): void
     {
         if (session_status() !== PHP_SESSION_NONE) {
             return;
         }
-
-        // ถ้า header ถูกส่งไปแล้ว การ start session จะเตือน/พัง
         if (headers_sent()) {
-            // ยังไงก็พยายามไม่พังแอป แต่ log ทิ้งไว้ให้รู้ปัญหา
             if (function_exists('app_log')) {
                 app_log('session.headers_already_sent');
             }
@@ -28,11 +27,10 @@ if (!function_exists('app_session_start')) {
 
         $isHttps = (
             (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
+            || ((string)($_SERVER['SERVER_PORT'] ?? '') === '443')
         );
 
-        // ตั้งค่า cookie ให้ปลอดภัยขึ้น
-        $cookieParams = [
+        $params = [
             'lifetime' => 0,
             'path'     => '/',
             'domain'   => '',
@@ -41,56 +39,78 @@ if (!function_exists('app_session_start')) {
             'samesite' => 'Lax',
         ];
 
-        // PHP 7.3+ รองรับ array
         if (defined('PHP_VERSION_ID') && PHP_VERSION_ID >= 70300) {
-            session_set_cookie_params($cookieParams);
+            session_set_cookie_params($params);
         } else {
-            // fallback signature เก่า
             session_set_cookie_params(
-                $cookieParams['lifetime'],
-                $cookieParams['path'],
-                $cookieParams['domain'],
-                $cookieParams['secure'],
-                $cookieParams['httponly']
+                $params['lifetime'],
+                $params['path'],
+                $params['domain'],
+                $params['secure'],
+                $params['httponly']
             );
             @ini_set('session.cookie_samesite', 'Lax');
         }
 
         session_start();
+
+        // CSRF token เตรียมไว้เลย
+        if (empty($_SESSION['_csrf']) || !is_string($_SESSION['_csrf'])) {
+            $_SESSION['_csrf'] = bin2hex(random_bytes(32));
+        }
     }
 }
 
-/**
- * Escape HTML แบบปลอดภัย
- */
+// ----------------------------
+// Security headers
+// ----------------------------
+if (!function_exists('send_security_headers')) {
+    function send_security_headers(): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: DENY');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+
+        // CSP แบบ basic (คุมเข้มทีหลังได้)
+        // ถ้ามี inline script/style เยอะ ค่อยปรับเป็น nonce
+        header(
+            "Content-Security-Policy: default-src 'self'; " .
+                "img-src 'self' data: https:; " .
+                "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " .
+                "font-src 'self' https://fonts.gstatic.com; " .
+                "script-src 'self' 'unsafe-inline'; " .
+                "frame-ancestors 'none';"
+        );
+    }
+}
+
+// ----------------------------
+// HTML escape
+// ----------------------------
 if (!function_exists('e')) {
     function e($value): string
     {
-        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }
 
-/**
- * แปลงวันที่เป็น พ.ศ. รูปแบบ d/m/(Y+543)
- * input: string ที่ strtotime อ่านได้ เช่น '2025-12-03'
- */
+// ----------------------------
+// Date helpers
+// ----------------------------
 if (!function_exists('buddhist_date')) {
     function buddhist_date(string $date): string
     {
         $ts = strtotime($date);
-        if ($ts === false) {
-            return '';
-        }
-
-        $year = (int) date('Y', $ts) + 543;
+        if ($ts === false) return '';
+        $year = (int)date('Y', $ts) + 543;
         return date('d/m/', $ts) . $year;
     }
 }
 
-/**
- * แสดงวันที่แบบเต็ม: 1 มกราคม 2568
- * monthZeroBased: 0 = มกราคม, 11 = ธันวาคม
- */
 if (!function_exists('thai_full_date')) {
     function thai_full_date(int $day, int $monthZeroBased, int $yearAD): string
     {
@@ -108,52 +128,36 @@ if (!function_exists('thai_full_date')) {
             'พฤศจิกายน',
             'ธันวาคม',
         ];
-
-        $monthName = isset($months[$monthZeroBased]) ? $months[$monthZeroBased] : '';
-        $buddhistYear = $yearAD + 543;
-
-        return $day . ' ' . $monthName . ' ' . $buddhistYear;
+        $monthName = $months[$monthZeroBased] ?? '';
+        return $day . ' ' . $monthName . ' ' . ($yearAD + 543);
     }
 }
 
-/**
- * ดึงเวลาปัจจุบันเป็น DateTimeImmutable (ใช้ใน service ต่าง ๆ)
- */
 if (!function_exists('now')) {
     function now(?string $timezone = 'Asia/Bangkok'): DateTimeImmutable
     {
-        $tzName = $timezone !== null && $timezone !== '' ? $timezone : 'UTC';
-
+        $tzName = ($timezone !== null && $timezone !== '') ? $timezone : 'UTC';
         try {
             $tz = new DateTimeZone($tzName);
         } catch (Exception $e) {
-            // fallback กัน timezone พิมพ์ผิด
             $tz = new DateTimeZone('UTC');
         }
-
         return new DateTimeImmutable('now', $tz);
     }
 }
 
-/**
- * ดึง user ปัจจุบันจาก session (ถ้ามี)
- */
+// ----------------------------
+// Auth helpers
+// ----------------------------
 if (!function_exists('current_user')) {
     function current_user(): ?array
     {
         app_session_start();
-
-        if (!isset($_SESSION['user']) || !is_array($_SESSION['user'])) {
-            return null;
-        }
-
-        return $_SESSION['user'];
+        $u = $_SESSION['user'] ?? null;
+        return is_array($u) ? $u : null;
     }
 }
 
-/**
- * เช็คว่ามีผู้ใช้ล็อกอินอยู่ไหม
- */
 if (!function_exists('is_authenticated')) {
     function is_authenticated(): bool
     {
@@ -161,24 +165,17 @@ if (!function_exists('is_authenticated')) {
     }
 }
 
-/**
- * เช็คว่า user ปัจจุบันเป็น admin หรือไม่
- */
 if (!function_exists('is_admin')) {
     function is_admin(): bool
     {
         $user = current_user();
-        if ($user === null) {
-            return false;
-        }
-
-        return isset($user['role']) && $user['role'] === 'admin';
+        return is_array($user) && (($user['role'] ?? null) === 'admin');
     }
 }
 
-/**
- * Redirect แบบง่าย ๆ
- */
+// ----------------------------
+// Redirect
+// ----------------------------
 if (!function_exists('redirect')) {
     function redirect(string $url, int $statusCode = 302): void
     {
@@ -187,12 +184,15 @@ if (!function_exists('redirect')) {
             exit;
         }
 
-        // Fallback เมื่อ header ถูกส่งไปแล้ว: ใช้ meta refresh + JS
+        // HTML escape สำหรับ meta refresh
         $safeUrl = e($url);
+
+        // JS escape ที่ถูกต้องสำหรับ string ใน <script>
+        $jsUrl = json_encode($url, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
         echo '<!doctype html><html><head>';
         echo '<meta http-equiv="refresh" content="0;url=' . $safeUrl . '">';
-        echo '<script>window.location.replace("' . $safeUrl . '");</script>';
+        echo '<script>window.location.replace(' . $jsUrl . ');</script>';
         echo '</head><body>';
         echo '<p>กำลังเปลี่ยนหน้าไปยัง <a href="' . $safeUrl . '">' . $safeUrl . '</a> ...</p>';
         echo '</body></html>';
@@ -200,76 +200,86 @@ if (!function_exists('redirect')) {
     }
 }
 
-/**
- * Flash message:
- * - flash('success', 'บันทึกสำเร็จ'); // set
- * - $msg = flash('success');          // get + ลบ
- */
+// ----------------------------
+// Flash + Old input
+// ----------------------------
 if (!function_exists('flash')) {
     function flash(string $key, ?string $message = null): ?string
     {
         app_session_start();
-
         if (!isset($_SESSION['_flash']) || !is_array($_SESSION['_flash'])) {
             $_SESSION['_flash'] = [];
         }
 
-        // set
         if ($message !== null) {
             $_SESSION['_flash'][$key] = $message;
             return null;
         }
 
-        // get & clear
-        $value = isset($_SESSION['_flash'][$key]) ? $_SESSION['_flash'][$key] : null;
+        $value = $_SESSION['_flash'][$key] ?? null;
         unset($_SESSION['_flash'][$key]);
-
-        return $value;
+        return is_string($value) ? $value : null;
     }
 }
 
-/**
- * แสดง Flash แบบ Popup พร้อมปุ่มปิด และรอคูลดาวน์ 5 วินาที
- * ใช้งาน: เรียก render_flash_popup() ใน layout หรือท้ายหน้าเพจ
- */
+if (!function_exists('store_old_input')) {
+    function store_old_input(array $input): void
+    {
+        app_session_start();
+        $_SESSION['_old_input'] = $input;
+    }
+}
+
+if (!function_exists('old')) {
+    function old(string $key, string $default = ''): string
+    {
+        app_session_start();
+        $data = (isset($_SESSION['_old_input']) && is_array($_SESSION['_old_input']))
+            ? $_SESSION['_old_input']
+            : [];
+
+        $val = $data[$key] ?? $default;
+        return e((string)$val);
+    }
+}
+
+// ----------------------------
+// Flash popup renderer
+// ----------------------------
 if (!function_exists('render_flash_popup')) {
     function render_flash_popup(): void
     {
+        static $renderedOnce = false;
+        if ($renderedOnce) return; // กันซ้อน
+        $renderedOnce = true;
+
         $success = flash('success');
         $error   = flash('error');
 
+        $type = null;
         $message = null;
-        $type    = null;
 
-        if ($success !== null) {
-            $message = $success;
+        if (is_string($success) && $success !== '') {
             $type = 'success';
-        } elseif ($error !== null) {
-            $message = $error;
+            $message = $success;
+        } elseif (is_string($error) && $error !== '') {
             $type = 'error';
+            $message = $error;
         }
 
-        if ($message === null || $type === null) {
-            return; // ไม่มีข้อความ ไม่ต้องแสดงอะไร
-        }
+        if ($type === null || $message === null) return;
 
-        $msgEsc  = e($message);
-        $typeEsc = e($type);
-
-        // กันโหลด CSS/JS ซ้ำ ถ้ามีคนเผลอเรียกหลายครั้ง
         static $assetsRendered = false;
-
         if (!$assetsRendered) {
             echo '<link rel="stylesheet" href="/css/flash-popup.css">';
             echo '<script src="/js/flash-popup.js"></script>';
             $assetsRendered = true;
         }
 
-        echo '<div class="flash-popup" role="alert" aria-live="polite" data-type="' . $typeEsc . '">
+        echo '<div class="flash-popup" role="alert" aria-live="polite" data-type="' . e($type) . '">
             <div class="flash-popup__bar"></div>
             <div class="flash-popup__content">
                 <svg class="flash-popup__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">';
-
         if ($type === 'success') {
             echo '<path d="M20 6L9 17l-5-5" />';
         } else {
@@ -277,9 +287,8 @@ if (!function_exists('render_flash_popup')) {
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12" y2="16" />';
         }
-
-        echo '  </svg>
-                <div class="flash-popup__msg">' . $msgEsc . '</div>
+        echo '</svg>
+                <div class="flash-popup__msg">' . e($message) . '</div>
             </div>
             <div class="flash-popup__actions">
                 <button type="button" class="flash-popup__close" aria-label="ปิด">ปิด</button>
@@ -289,69 +298,224 @@ if (!function_exists('render_flash_popup')) {
     }
 }
 
-/**
- * เก็บค่า input เดิมหลังจาก redirect (เช่น เวลาฟอร์ม validate ไม่ผ่าน)
- */
-if (!function_exists('old')) {
-    function old(string $key, string $default = ''): string
-    {
-        app_session_start();
 
-        $data = isset($_SESSION['_old_input']) && is_array($_SESSION['_old_input'])
-            ? $_SESSION['_old_input']
-            : [];
-
-        if (isset($data[$key])) {
-            return e((string) $data[$key]);
-        }
-
-        return e($default);
-    }
-}
-
-/**
- * ตั้งค่า old input ก่อน redirect (ใช้ใน controller)
- * ตัวอย่าง: store_old_input($_POST);
- */
-if (!function_exists('store_old_input')) {
-    function store_old_input(array $input): void
-    {
-        app_session_start();
-        $_SESSION['_old_input'] = $input;
-    }
-}
-
-/**
- * Logger เบา ๆ สำหรับ debug (เขียนลง error_log)
- */
+// ----------------------------
+// Logger
+// ----------------------------
 if (!function_exists('app_log')) {
     function app_log(string $event, array $context = []): void
     {
-        $flags = 0;
-        if (defined('JSON_UNESCAPED_UNICODE')) {
-            $flags |= (int) constant('JSON_UNESCAPED_UNICODE');
-        }
+        $flags = (int)JSON_UNESCAPED_UNICODE;
 
         $json = json_encode($context, $flags);
-        if ($json === false) {
-            $json = '{}';
+        if ($json === false) $json = '{}';
+
+        $app = defined('APP_NAME') ? (string)APP_NAME : 'app';
+        error_log('[' . $app . '][' . $event . '] ' . $json);
+    }
+}
+
+// ----------------------------
+// JSON response (ประกาศครั้งเดียวพอ)
+// ----------------------------
+if (!function_exists('json_response')) {
+    function json_response(array $payload, int $statusCode = 200): void
+    {
+        if (!headers_sent()) {
+            http_response_code($statusCode);
+            header('Content-Type: application/json; charset=utf-8');
         }
 
-        $line = '[sirinat][' . $event . '] ' . $json;
-        error_log($line);
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        echo ($json !== false) ? $json : '{"success":false,"message":"JSON encode failed"}';
+        exit;
+    }
+}
+
+// ----------------------------
+// CSRF (ชื่อให้สอดคล้องกัน + alias กันของเก่าพัง)
+// ----------------------------
+if (!function_exists('csrf_token')) {
+    function csrf_token(): string
+    {
+        app_session_start();
+        $t = $_SESSION['_csrf'] ?? '';
+        return is_string($t) ? $t : '';
+    }
+}
+
+if (!function_exists('csrf_from_request')) {
+    function csrf_from_request(): ?string
+    {
+        $t = $_POST['csrf'] ?? ($_GET['csrf'] ?? null);
+        return is_string($t) ? $t : null;
+    }
+}
+
+if (!function_exists('csrf_verify')) {
+    function csrf_verify(?string $token): bool
+    {
+        app_session_start();
+
+        $sessionToken = $_SESSION['_csrf'] ?? null;
+        if (!is_string($sessionToken) || $sessionToken === '') return false;
+        if (!is_string($token) || $token === '') return false;
+
+        return hash_equals($sessionToken, $token);
+    }
+}
+
+if (!function_exists('csrf_require')) {
+    function csrf_require(?string $token = null): void
+    {
+        $token = $token ?? csrf_from_request();
+        if (csrf_verify($token)) return;
+
+        $accept = (string)($_SERVER['HTTP_ACCEPT'] ?? '');
+        $xrw    = (string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '');
+
+        if (stripos($accept, 'application/json') !== false || strtolower($xrw) === 'xmlhttprequest') {
+            json_response(['success' => false, 'message' => 'CSRF ไม่ถูกต้อง'], 419);
+        }
+
+        flash('error', 'CSRF ไม่ถูกต้อง');
+        redirect('?page=home');
     }
 }
 
 /**
- * ส่ง response เป็น JSON พร้อมตั้ง HTTP status code
+ * Alias เพื่อรองรับโค้ดเดิม (เช่น payment.php เรียก verify_csrf)
+ * Intelephense จะไม่ร้องแล้ว
  */
-if (!function_exists('json_response')) {
-    function json_response(array $payload, int $statusCode = 200): void
+if (!function_exists('verify_csrf')) {
+    function verify_csrf(?string $token): bool
     {
-        http_response_code($statusCode);
-        header('Content-Type: application/json; charset=utf-8');
+        return csrf_verify($token);
+    }
+}
 
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit();
+if (!function_exists('verify_csrf_token')) {
+    function verify_csrf_token(?string $token): bool
+    {
+        return csrf_verify($token);
+    }
+}
+
+if (!function_exists('request_csrf_token')) {
+    function request_csrf_token(): ?string
+    {
+        return csrf_from_request();
+    }
+}
+
+
+// ----------------------------
+// Router utilities (ใช้ใน index.php)
+// ----------------------------
+if (!function_exists('resolve_page')) {
+    function resolve_page($pageParam, array $routes): string
+    {
+        $raw = is_string($pageParam) ? $pageParam : 'home';
+        $raw = strtolower($raw);
+
+        if (!preg_match('/^[a-z0-9_]+$/', $raw)) {
+            return 'home';
+        }
+        return array_key_exists($raw, $routes) ? $raw : 'home';
+    }
+}
+
+if (!function_exists('build_page_css')) {
+    function build_page_css(array $route): array
+    {
+        $pageCss = [];
+        $cssList = $route['css'] ?? [];
+        if (!is_array($cssList)) return $pageCss;
+
+        foreach ($cssList as $cssFile) {
+            if (!is_string($cssFile) || $cssFile === '') continue;
+            $pageCss[] = '/css/' . ltrim($cssFile, '/');
+        }
+        return $pageCss;
+    }
+}
+
+if (!function_exists('guard_route')) {
+    function guard_route(array $route): void
+    {
+        // auth
+        if (!empty($route['auth']) && !is_authenticated()) {
+            flash('error', 'กรุณาเข้าสู่ระบบก่อนเข้าหน้านี้');
+            store_old_input($_GET);
+            redirect('?page=signin');
+        }
+
+        // guest_only
+        if (!empty($route['guest_only']) && is_authenticated()) {
+            redirect('?page=home');
+        }
+
+        // admin
+        if (!empty($route['admin']) && !is_admin()) {
+            flash('error', 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
+            redirect('?page=home');
+        }
+    }
+}
+
+// ----------------------------
+// Logout utilities
+// ----------------------------
+if (!function_exists('is_logout_request')) {
+    function is_logout_request(): bool
+    {
+        // Only POST action=logout
+        return (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST')
+            && (($_POST['action'] ?? '') === 'logout');
+    }
+}
+
+if (!function_exists('handle_logout')) {
+    function handle_logout(): void
+    {
+        app_session_start();
+
+        $_SESSION = [];
+
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+
+            // PHP 7.3+ รองรับ array options (มี samesite)
+            if (defined('PHP_VERSION_ID') && PHP_VERSION_ID >= 70300) {
+                setcookie(session_name(), '', [
+                    'expires'  => time() - 42000,
+                    'path'     => $params['path'] ?? '/',
+                    'domain'   => $params['domain'] ?? '',
+                    'secure'   => (bool)($params['secure'] ?? false),
+                    'httponly' => (bool)($params['httponly'] ?? true),
+                    'samesite' => $params['samesite'] ?? 'Lax',
+                ]);
+            } else {
+                setcookie(
+                    session_name(),
+                    '',
+                    time() - 42000,
+                    $params['path'] ?? '/',
+                    $params['domain'] ?? '',
+                    (bool)($params['secure'] ?? false),
+                    (bool)($params['httponly'] ?? true)
+                );
+                @ini_set('session.cookie_samesite', 'Lax');
+            }
+        }
+
+
+        session_destroy();
+
+        app_log('user_logout', [
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+
+        redirect('?page=home');
     }
 }

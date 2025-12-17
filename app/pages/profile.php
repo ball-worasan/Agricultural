@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-// ให้ไฟล์นี้ทำงานได้ทั้งกรณีถูก include ผ่าน index.php และถูกเปิดตรง ๆ (dev)
 if (!defined('APP_PATH')) {
-    define('APP_PATH', dirname(__DIR__, 2)); // จาก /app/public/pages → /app
+    define('APP_PATH', dirname(__DIR__, 2));
 }
 
 require_once APP_PATH . '/config/Database.php';
@@ -12,253 +11,224 @@ require_once APP_PATH . '/includes/helpers.php';
 
 app_session_start();
 
-// ตรวจสอบการล็อกอินด้วย helper กลาง
-$currentUser = current_user();
-if ($currentUser === null) {
+// ---------- Auth ----------
+$user = current_user();
+if ($user === null) {
     redirect('?page=signin');
 }
-
-$userId = (int) ($currentUser['id'] ?? 0);
+$userId = (int)($user['id'] ?? 0);
 if ($userId <= 0) {
-    app_log('profile_invalid_user', ['session_user' => $currentUser]);
+    app_log('profile_invalid_session', ['user' => $user]);
     redirect('?page=signin');
 }
 
-$message     = '';
-$messageType = '';
+// ---------- CSRF (เฉพาะ POST ที่เป็น action จริง) ----------
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $isAction =
+        isset($_FILES['profile_image']) ||
+        isset($_POST['update_profile']) ||
+        isset($_POST['change_password']);
 
-// ---------- อัปโหลดรูปโปรไฟล์ ----------
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    && isset($_FILES['profile_image'])
-    && $_FILES['profile_image']['error'] !== UPLOAD_ERR_NO_FILE
-) {
-    // ใช้ path ที่สอดคล้องกับ public/storage/uploads
+    if ($isAction) {
+        csrf_require();
+    }
+}
+
+// ---------- PRG success flags ----------
+$success = $_GET['success'] ?? null;
+if ($success === 'image') {
+    flash('success', 'อัปโหลดรูปโปรไฟล์สำเร็จ');
+} elseif ($success === 'profile') {
+    flash('success', 'อัปเดตข้อมูลส่วนตัวเรียบร้อย');
+} elseif ($success === 'password') {
+    flash('success', 'เปลี่ยนรหัสผ่านสำเร็จ');
+}
+
+// =======================================================
+// UPLOAD PROFILE IMAGE
+// =======================================================
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_FILES['profile_image'])) {
+    // ถ้าไม่มีไฟล์ (บางเบราว์เซอร์ยิง POST มาเฉย ๆ) ก็ข้าม
+    if (($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        flash('error', 'กรุณาเลือกไฟล์รูปภาพ');
+        redirect('?page=profile');
+    }
+
     $uploadDir = APP_PATH . '/public/storage/uploads/profiles';
-
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
-        $message     = 'ไม่สามารถสร้างโฟลเดอร์อัปโหลดรูปภาพได้';
-        $messageType = 'error';
-    } else {
-        $file = $_FILES['profile_image'];
-        $allowedMimeTypes = [
-            'image/jpeg',
-            'image/png',
-            'image/gif',
-            'image/webp',
-        ];
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-        $maxSize = 5 * 1024 * 1024; // 5MB
+        flash('error', 'ไม่สามารถสร้างโฟลเดอร์อัปโหลดได้');
+        redirect('?page=profile');
+    }
 
-        if ($file['error'] === UPLOAD_ERR_OK) {
-            // ตรวจสอบ MIME type จริง
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mimeType = finfo_file($finfo, $file['tmp_name']);
-            finfo_close($finfo);
+    $file = $_FILES['profile_image'];
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        flash('error', 'เกิดข้อผิดพลาดในการอัปโหลดไฟล์ (code: ' . (int)$file['error'] . ')');
+        redirect('?page=profile');
+    }
 
-            // ตรวจสอบนามสกุลไฟล์
-            $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $allowedMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    $allowedExt  = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    $maxSize     = 5 * 1024 * 1024;
 
-            if (!in_array($mimeType, $allowedMimeTypes, true) || !in_array($fileExtension, $allowedExtensions, true)) {
-                $message     = 'อนุญาตเฉพาะไฟล์รูปภาพ (JPEG, PNG, GIF, WEBP)';
-                $messageType = 'error';
-            } elseif ((int) $file['size'] > $maxSize) {
-                $message     = 'ขนาดไฟล์ต้องไม่เกิน 5MB';
-                $messageType = 'error';
-            } else {
-                // สร้างชื่อไฟล์ใหม่แบบ unique
-                $newFileName = sprintf(
-                    'profile_%d_%s.%s',
-                    $userId,
-                    date('YmdHis'),
-                    $fileExtension
-                );
-                $destination = $uploadDir . '/' . $newFileName;
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime  = $finfo ? finfo_file($finfo, $file['tmp_name']) : null;
+    if ($finfo) finfo_close($finfo);
 
-                if (move_uploaded_file($file['tmp_name'], $destination)) {
-                    // ลบรูปเดิมถ้ามี (ไม่ใช่ ui-avatars)
-                    $oldImage = Database::fetchOne('SELECT profile_image FROM users WHERE id = ?', [$userId]);
+    $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
 
-                    if (
-                        $oldImage
-                        && !empty($oldImage['profile_image'])
-                        && strpos((string) $oldImage['profile_image'], 'ui-avatars.com') === false
-                        && strpos((string) $oldImage['profile_image'], 'http') === false
-                    ) {
-                        $oldPath = APP_PATH . '/public' . $oldImage['profile_image'];
-                        if (is_file($oldPath)) {
-                            @unlink($oldPath);
-                            app_log('profile_image_deleted', ['path' => $oldPath]);
-                        }
-                    }
+    if (!is_string($mime) || !in_array($mime, $allowedMime, true) || !in_array($ext, $allowedExt, true)) {
+        flash('error', 'อนุญาตเฉพาะไฟล์รูปภาพ (jpg, png, gif, webp)');
+        redirect('?page=profile');
+    }
 
-                    // บันทึก path สัมพัทธ์จาก public/
-                    $imagePath = '/storage/uploads/profiles/' . $newFileName;
+    if ((int)$file['size'] > $maxSize) {
+        flash('error', 'ขนาดไฟล์ต้องไม่เกิน 5MB');
+        redirect('?page=profile');
+    }
 
-                    Database::execute(
-                        'UPDATE users SET profile_image = ?, updated_at = NOW() WHERE id = ?',
-                        [$imagePath, $userId]
-                    );
+    $newName = sprintf('profile_%d_%s.%s', $userId, date('YmdHis'), $ext);
+    $dest = $uploadDir . '/' . $newName;
 
-                    // อัปเดต session
-                    $_SESSION['user']['profile_image'] = $imagePath;
+    if (!move_uploaded_file($file['tmp_name'], $dest)) {
+        flash('error', 'ไม่สามารถบันทึกไฟล์ได้');
+        redirect('?page=profile');
+    }
 
-                    app_log('profile_image_uploaded', [
-                        'user_id' => $userId,
-                        'path'    => $imagePath,
-                    ]);
-
-                    // redirect กัน refresh แล้วอัปโหลดซ้ำ
-                    redirect('?page=profile&success=image');
-                } else {
-                    $message     = 'เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ (ไม่สามารถย้ายไฟล์ได้)';
-                    $messageType = 'error';
-                }
+    // ลบรูปเก่า (allowlist path เท่านั้น)
+    $old = Database::fetchOne('SELECT profile_image FROM users WHERE id = ?', [$userId]);
+    if ($old && !empty($old['profile_image'])) {
+        $oldRel = (string)$old['profile_image'];
+        if (strpos($oldRel, '/storage/uploads/profiles/') === 0) {
+            $oldPath = APP_PATH . '/public' . $oldRel;
+            if (is_file($oldPath)) {
+                @unlink($oldPath);
             }
-        } else {
-            $message     = 'เกิดข้อผิดพลาดในการอัปโหลดไฟล์ (error code: ' . (int) $file['error'] . ')';
-            $messageType = 'error';
         }
     }
+
+    $relPath = '/storage/uploads/profiles/' . $newName;
+    Database::execute(
+        'UPDATE users SET profile_image = ?, updated_at = NOW() WHERE id = ?',
+        [$relPath, $userId]
+    );
+
+    $_SESSION['user']['profile_image'] = $relPath;
+
+    redirect('?page=profile&success=image');
 }
 
-// ---------- เปลี่ยนรหัสผ่าน ----------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
-    $currentPassword = (string) ($_POST['current_password'] ?? '');
-    $newPassword     = (string) ($_POST['new_password'] ?? '');
-    $confirmPassword = (string) ($_POST['confirm_new_password'] ?? '');
+// =======================================================
+// UPDATE PROFILE
+// =======================================================
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['update_profile'])) {
+    $firstname = trim((string)($_POST['firstname'] ?? ''));
+    $lastname  = trim((string)($_POST['lastname'] ?? ''));
+    $address   = trim((string)($_POST['address'] ?? ''));
 
-    if ($currentPassword === '' || $newPassword === '' || $confirmPassword === '') {
-        $message     = 'กรุณากรอกข้อมูลให้ครบถ้วน';
-        $messageType = 'error';
-    } elseif ($newPassword !== $confirmPassword) {
-        $message     = 'รหัสผ่านใหม่ไม่ตรงกัน';
-        $messageType = 'error';
-    } elseif (strlen($newPassword) < 6) {
-        $message     = 'รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร';
-        $messageType = 'error';
-    } else {
-        try {
-            $userRow = Database::fetchOne('SELECT password FROM users WHERE id = ?', [$userId]);
-
-            if ($userRow && password_verify($currentPassword, (string) $userRow['password'])) {
-                $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
-
-                Database::execute(
-                    'UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?',
-                    [$hashedPassword, $userId]
-                );
-
-                $message     = 'เปลี่ยนรหัสผ่านสำเร็จ';
-                $messageType = 'success';
-            } else {
-                $message     = 'รหัสผ่านเดิมไม่ถูกต้อง';
-                $messageType = 'error';
-            }
-        } catch (Throwable $e) {
-            app_log('profile_change_password_error', [
-                'user_id' => $userId,
-                'error'   => $e->getMessage(),
-            ]);
-            $message     = 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน';
-            $messageType = 'error';
-        }
-    }
-}
-
-// ---------- อัปเดตข้อมูลส่วนตัว ----------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
-    $firstname = trim((string) ($_POST['firstname'] ?? ''));
-    $lastname  = trim((string) ($_POST['lastname'] ?? ''));
-    $address   = trim((string) ($_POST['address'] ?? ''));
-    $phone     = trim((string) ($_POST['phone'] ?? ''));
+    $phoneRaw = (string)($_POST['phone'] ?? '');
+    $phone = preg_replace('/\D/', '', $phoneRaw) ?? '';
 
     if ($firstname === '' || $lastname === '') {
-        $message     = 'กรุณากรอกชื่อและนามสกุล';
-        $messageType = 'error';
-    } else {
-        try {
-            if ($phone !== '') {
-                $existingPhone = Database::fetchOne(
-                    'SELECT id FROM users WHERE phone = ? AND id != ?',
-                    [$phone, $userId]
-                );
+        flash('error', 'กรุณากรอกชื่อและนามสกุล');
+        redirect('?page=profile');
+    }
 
-                if ($existingPhone) {
-                    $message     = 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว';
-                    $messageType = 'error';
-                } else {
-                    Database::execute(
-                        '
-                        UPDATE users 
-                        SET firstname = ?, lastname = ?, address = ?, phone = ?, updated_at = NOW() 
-                        WHERE id = ?
-                        ',
-                        [$firstname, $lastname, $address, $phone, $userId]
-                    );
-                    $_SESSION['user']['firstname'] = $firstname;
-                    $_SESSION['user']['lastname']  = $lastname;
+    if ($phone !== '' && !preg_match('/^[0-9]{9,10}$/', $phone)) {
+        flash('error', 'กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก');
+        redirect('?page=profile');
+    }
 
-                    $message     = 'อัปเดตข้อมูลสำเร็จ';
-                    $messageType = 'success';
-                }
-            } else {
-                Database::execute(
-                    '
-                    UPDATE users 
-                    SET firstname = ?, lastname = ?, address = ?, phone = ?, updated_at = NOW() 
-                    WHERE id = ?
-                    ',
-                    [$firstname, $lastname, $address, $phone, $userId]
-                );
-                $_SESSION['user']['firstname'] = $firstname;
-                $_SESSION['user']['lastname']  = $lastname;
-
-                $message     = 'อัปเดตข้อมูลสำเร็จ';
-                $messageType = 'success';
-            }
-        } catch (Throwable $e) {
-            app_log('profile_update_error', [
-                'user_id' => $userId,
-                'error'   => $e->getMessage(),
-            ]);
-            $message     = 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล';
-            $messageType = 'error';
+    if ($phone !== '') {
+        $dup = Database::fetchOne(
+            'SELECT id FROM users WHERE phone = ? AND id != ?',
+            [$phone, $userId]
+        );
+        if ($dup) {
+            flash('error', 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว');
+            redirect('?page=profile');
         }
     }
+
+    Database::execute(
+        'UPDATE users SET firstname=?, lastname=?, address=?, phone=?, updated_at=NOW() WHERE id=?',
+        [$firstname, $lastname, $address, $phone !== '' ? $phone : null, $userId]
+    );
+
+    $_SESSION['user']['firstname'] = $firstname;
+    $_SESSION['user']['lastname']  = $lastname;
+
+    redirect('?page=profile&success=profile');
 }
 
-// ---------- ดึงข้อมูลผู้ใช้ล่าสุดจากฐานข้อมูล ----------
-$user = Database::fetchOne('SELECT * FROM users WHERE id = ?', [$userId]);
+// =======================================================
+// CHANGE PASSWORD
+// =======================================================
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['change_password'])) {
+    $current = (string)($_POST['current_password'] ?? '');
+    $new     = (string)($_POST['new_password'] ?? '');
+    $confirm = (string)($_POST['confirm_new_password'] ?? '');
 
+    if ($current === '' || $new === '' || $confirm === '') {
+        flash('error', 'กรุณากรอกข้อมูลให้ครบ');
+        redirect('?page=profile');
+    }
+
+    if ($new !== $confirm) {
+        flash('error', 'รหัสผ่านใหม่ไม่ตรงกัน');
+        redirect('?page=profile');
+    }
+
+    if (strlen($new) < 6) {
+        flash('error', 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร');
+        redirect('?page=profile');
+    }
+
+    if ($new === $current) {
+        flash('error', 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม');
+        redirect('?page=profile');
+    }
+
+    $row = Database::fetchOne('SELECT password FROM users WHERE id = ?', [$userId]);
+    if (!$row || !password_verify($current, (string)$row['password'])) {
+        flash('error', 'รหัสผ่านเดิมไม่ถูกต้อง');
+        redirect('?page=profile');
+    }
+
+    $hash = password_hash($new, PASSWORD_DEFAULT);
+    if ($hash === false) {
+        flash('error', 'ไม่สามารถตั้งรหัสผ่านใหม่ได้');
+        redirect('?page=profile');
+    }
+
+    Database::execute(
+        'UPDATE users SET password=?, updated_at=NOW() WHERE id=?',
+        [$hash, $userId]
+    );
+
+    redirect('?page=profile&success=password');
+}
+
+// =======================================================
+// LOAD USER
+// =======================================================
+$user = Database::fetchOne('SELECT * FROM users WHERE id = ?', [$userId]);
 if (!$user) {
-    app_log('profile_user_not_found', ['user_id' => $userId]);
     unset($_SESSION['user']);
     redirect('?page=signin');
 }
 
-// สร้าง URL รูปโปรไฟล์
-$profileImageUrl = 'https://ui-avatars.com/api/?name=' . urlencode((string) $user['firstname'] . '+' . (string) $user['lastname']) . '&size=200&background=667eea&color=fff&bold=true';
+$profileImageUrl = !empty($user['profile_image'])
+    ? (strpos((string)$user['profile_image'], 'http') === 0
+        ? (string)$user['profile_image']
+        : (string)$user['profile_image'])
+    : 'https://ui-avatars.com/api/?name=' .
+    urlencode((string)$user['firstname'] . ' ' . (string)$user['lastname']) .
+    '&size=200&background=667eea&color=fff';
 
-if (!empty($user['profile_image'])) {
-    $imagePath = (string) $user['profile_image'];
-    // ถ้าเป็น URL เต็ม (http/https) ใช้เลย
-    if (strpos($imagePath, 'http') === 0) {
-        $profileImageUrl = $imagePath;
-    } else {
-        // ถ้าเป็น path สัมพัทธ์ ให้เติม base URL
-        $profileImageUrl = $imagePath;
-    }
-}
+$roleText = ((string)$user['role'] === 'admin') ? 'ผู้ดูแลระบบ' : 'สมาชิก';
 
-$roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระบบ' : 'สมาชิก';
 ?>
-
-<?php if ($message !== ''): ?>
-    <div class="profile-message <?= e($messageType); ?>" id="profileMessage">
-        <?= e($message); ?>
-    </div>
-<?php endif; ?>
+<?php render_flash_popup(); ?>
 
 <div class="profile-container">
     <div class="profile-wrapper">
@@ -271,6 +241,8 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
             <!-- Profile Picture Section -->
             <div class="profile-picture-section">
                 <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
+
                     <div class="profile-picture">
                         <img src="<?= e($profileImageUrl); ?>" alt="Profile Picture" id="profileImage">
                         <div class="picture-overlay">
@@ -288,7 +260,8 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                                 style="display: none;">
                         </div>
                     </div>
-                    <h2 class="profile-name"><?= e((string) $user['firstname'] . ' ' . (string) $user['lastname']); ?></h2>
+
+                    <h2 class="profile-name"><?= e((string)$user['firstname'] . ' ' . (string)$user['lastname']); ?></h2>
                     <p class="profile-role"><?= e($roleText); ?></p>
                 </form>
             </div>
@@ -297,20 +270,23 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
             <div class="profile-info-section">
                 <div class="section-card">
                     <h3>ข้อมูลส่วนตัว</h3>
+
                     <form method="POST" id="profileForm" style="display: none;">
+                        <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
                         <input type="hidden" name="update_profile" value="1">
+
                         <div class="info-grid">
                             <div class="info-item">
                                 <label>ชื่อ</label>
-                                <input type="text" name="firstname" value="<?= e((string) $user['firstname']); ?>" required class="edit-input">
+                                <input type="text" name="firstname" value="<?= e((string)$user['firstname']); ?>" required class="edit-input">
                             </div>
                             <div class="info-item">
                                 <label>นามสกุล</label>
-                                <input type="text" name="lastname" value="<?= e((string) $user['lastname']); ?>" required class="edit-input">
+                                <input type="text" name="lastname" value="<?= e((string)$user['lastname']); ?>" required class="edit-input">
                             </div>
                             <div class="info-item">
                                 <label>ที่อยู่</label>
-                                <textarea name="address" class="edit-input" rows="3"><?= e((string) ($user['address'] ?? '')); ?></textarea>
+                                <textarea name="address" class="edit-input" rows="3"><?= e((string)($user['address'] ?? '')); ?></textarea>
                             </div>
                             <div class="info-item">
                                 <label>เบอร์โทรศัพท์</label>
@@ -318,20 +294,21 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                                     type="tel"
                                     id="phone"
                                     name="phone"
-                                    value="<?= e((string) ($user['phone'] ?? '')); ?>"
+                                    value="<?= e((string)($user['phone'] ?? '')); ?>"
                                     class="edit-input"
                                     pattern="[0-9]{9,10}"
                                     title="กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก">
                             </div>
                             <div class="info-item">
                                 <label>ชื่อผู้ใช้</label>
-                                <p><?= e((string) $user['username']); ?> <small>(ไม่สามารถเปลี่ยนได้)</small></p>
+                                <p><?= e((string)$user['username']); ?> <small>(ไม่สามารถเปลี่ยนได้)</small></p>
                             </div>
                             <div class="info-item">
                                 <label>อีเมล</label>
-                                <p><?= e((string) $user['email']); ?> <small>(ไม่สามารถเปลี่ยนได้)</small></p>
+                                <p><?= e((string)$user['email']); ?> <small>(ไม่สามารถเปลี่ยนได้)</small></p>
                             </div>
                         </div>
+
                         <div class="form-actions">
                             <button type="submit" class="btn-save">บันทึกการเปลี่ยนแปลง</button>
                             <button type="button" class="btn-cancel" onclick="cancelEdit()">ยกเลิก</button>
@@ -342,29 +319,30 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                         <div class="info-grid">
                             <div class="info-item">
                                 <label>ชื่อ - นามสกุล</label>
-                                <p><?= e((string) $user['firstname'] . ' ' . (string) $user['lastname']); ?></p>
+                                <p><?= e((string)$user['firstname'] . ' ' . (string)$user['lastname']); ?></p>
                             </div>
                             <div class="info-item">
                                 <label>ที่อยู่</label>
-                                <p><?= e((string) ($user['address'] ?? 'ไม่ได้ระบุ')); ?></p>
+                                <p><?= e((string)($user['address'] ?? 'ไม่ได้ระบุ')); ?></p>
                             </div>
                             <div class="info-item">
                                 <label>เบอร์โทรศัพท์</label>
-                                <p><?= e((string) ($user['phone'] ?? 'ไม่ได้ระบุ')); ?></p>
+                                <p><?= e((string)($user['phone'] ?? 'ไม่ได้ระบุ')); ?></p>
                             </div>
                             <div class="info-item">
                                 <label>อีเมล</label>
-                                <p><?= e((string) $user['email']); ?></p>
+                                <p><?= e((string)$user['email']); ?></p>
                             </div>
                             <div class="info-item">
                                 <label>ชื่อผู้ใช้</label>
-                                <p><?= e((string) $user['username']); ?></p>
+                                <p><?= e((string)$user['username']); ?></p>
                             </div>
                             <div class="info-item">
                                 <label>สมาชิกตั้งแต่</label>
-                                <p><?= date('d/m/Y', strtotime((string) $user['created_at'])); ?></p>
+                                <p><?= e(date('d/m/Y', strtotime((string)$user['created_at']))); ?></p>
                             </div>
                         </div>
+
                         <button class="btn-edit" onclick="showEdit()">แก้ไขข้อมูล</button>
                     </div>
                 </div>
@@ -372,8 +350,11 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                 <!-- Change Password Section -->
                 <div class="section-card">
                     <h3>เปลี่ยนรหัสผ่าน</h3>
-                    <form action="" method="POST" class="password-form">
+
+                    <form method="POST" class="password-form">
+                        <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
                         <input type="hidden" name="change_password" value="1">
+
                         <div class="form-group">
                             <label for="current_password">รหัสผ่านเดิม</label>
                             <div class="password-input-wrapper">
@@ -383,7 +364,7 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                         <circle cx="12" cy="12" r="3"></circle>
                                     </svg>
-                                    <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                                    <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
                                         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                                         <line x1="1" y1="1" x2="23" y2="23"></line>
                                     </svg>
@@ -401,13 +382,14 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                             <circle cx="12" cy="12" r="3"></circle>
                                         </svg>
-                                        <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                        <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                                             <line x1="1" y1="1" x2="23" y2="23"></line>
                                         </svg>
                                     </button>
                                 </div>
                             </div>
+
                             <div class="form-group">
                                 <label for="confirm_new_password">ยืนยันรหัสผ่านใหม่</label>
                                 <div class="password-input-wrapper">
@@ -417,8 +399,8 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                             <circle cx="12" cy="12" r="3"></circle>
                                         </svg>
-                                        <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                        <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                                             <line x1="1" y1="1" x2="23" y2="23"></line>
                                         </svg>
                                     </button>
@@ -457,15 +439,6 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
         window.showEdit = showEdit;
         window.cancelEdit = cancelEdit;
 
-        const msg = document.getElementById('profileMessage');
-        if (msg) {
-            setTimeout(() => {
-                msg.style.transition = 'opacity 0.5s';
-                msg.style.opacity = '0';
-                setTimeout(() => msg.remove(), 500);
-            }, 5000);
-        }
-
         const uploadInput = document.getElementById('uploadPicture');
         const uploadForm = document.getElementById('uploadForm');
         const profileImage = document.getElementById('profileImage');
@@ -475,19 +448,13 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                 if (!this.files || !this.files[0]) return;
                 const file = this.files[0];
                 const maxSize = 5 * 1024 * 1024;
-                const allowed = [
-                    'image/jpeg',
-                    'image/png',
-                    'image/gif',
-                    'image/webp',
-                ];
+                const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
                 if (!allowed.includes(file.type)) {
                     alert('อนุญาตเฉพาะไฟล์รูปภาพ (JPEG, PNG, GIF, WEBP)');
                     this.value = '';
                     return;
                 }
-
                 if (file.size > maxSize) {
                     alert('ขนาดไฟล์ต้องไม่เกิน 5MB');
                     this.value = '';
@@ -499,6 +466,7 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                     profileImage.src = e.target?.result || profileImage.src;
                 };
                 reader.readAsDataURL(file);
+
                 uploadForm.submit();
             });
         }
@@ -515,13 +483,11 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                     alert('กรุณากรอกชื่อและนามสกุล');
                     return false;
                 }
-
                 if (phone && !/^[0-9]{9,10}$/.test(phone)) {
                     e.preventDefault();
                     alert('กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง (9-10 หลัก)');
                     return false;
                 }
-
                 return true;
             });
         }
@@ -538,41 +504,35 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
                     alert('กรุณากรอกข้อมูลให้ครบถ้วน');
                     return false;
                 }
-
                 if (newPassword.length < 6) {
                     e.preventDefault();
                     alert('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
                     return false;
                 }
-
                 if (newPassword !== confirmPassword) {
                     e.preventDefault();
                     alert('รหัสผ่านใหม่ไม่ตรงกัน');
                     return false;
                 }
-
                 if (newPassword === currentPassword) {
                     e.preventDefault();
                     alert('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม');
                     return false;
                 }
-
                 return true;
             });
         }
 
-        const toggleButtons = document.querySelectorAll('.toggle-password');
-        toggleButtons.forEach((button) => {
+        document.querySelectorAll('.toggle-password').forEach((button) => {
             button.addEventListener('click', () => {
                 const targetId = button.getAttribute('data-target');
-                const passwordInput = targetId ? document.getElementById(targetId) : null;
+                const input = targetId ? document.getElementById(targetId) : null;
                 const eyeIcon = button.querySelector('.eye-icon');
                 const eyeOffIcon = button.querySelector('.eye-off-icon');
+                if (!input || !eyeIcon || !eyeOffIcon) return;
 
-                if (!passwordInput || !eyeIcon || !eyeOffIcon) return;
-
-                const isPassword = passwordInput.type === 'password';
-                passwordInput.type = isPassword ? 'text' : 'password';
+                const isPassword = input.type === 'password';
+                input.type = isPassword ? 'text' : 'password';
                 eyeIcon.style.display = isPassword ? 'none' : 'block';
                 eyeOffIcon.style.display = isPassword ? 'block' : 'none';
             });
@@ -582,9 +542,7 @@ $roleText = ((string) $user['role'] === 'admin') ? 'ผู้ดูแลระ�
         if (phoneInput) {
             phoneInput.addEventListener('input', function() {
                 this.value = this.value.replace(/[^0-9]/g, '');
-                if (this.value.length > 10) {
-                    this.value = this.value.slice(0, 10);
-                }
+                if (this.value.length > 10) this.value = this.value.slice(0, 10);
             });
         }
     })();

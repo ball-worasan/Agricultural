@@ -158,7 +158,6 @@
 .gallery-nav.prev {
   left: 0.75rem;
 }
-
 .gallery-nav.next {
   right: 0.75rem;
 }
@@ -269,7 +268,7 @@
   font-size: 0.9rem;
 }
 
-.spec-item+.spec-item {
+.spec-item + .spec-item {
   margin-top: 0.25rem;
 }
 
@@ -326,8 +325,9 @@
   border-color: var(--status-sold-border);
 }
 
-/* User booking info */
-.user-booking-info {
+/* User booking info (ให้ติดทั้ง class และ id กันพลาด) */
+.user-booking-info,
+#userBookingInfo {
   background: var(--primary-pale);
   padding: 0.8rem 0.9rem;
   border-radius: var(--radius-sm);
@@ -571,7 +571,6 @@
   .detail-content {
     grid-template-columns: 1fr;
   }
-
   .topbar-right {
     align-items: flex-start;
   }
@@ -590,7 +589,6 @@
   .detail-title {
     font-size: 1.4rem;
   }
-
   .main-image-wrapper {
     min-height: 220px;
   }

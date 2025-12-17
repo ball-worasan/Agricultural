@@ -1,68 +1,85 @@
 (function () {
   "use strict";
 
-  var popup = document.querySelector(".flash-popup");
-  if (!popup) {
-    return;
-  }
+  var COOLDOWN_SECONDS = 5;
+  var AUTO_CLOSE_MS = 10000;
 
-  var btn = popup.querySelector(".flash-popup__close");
-  var count = popup.querySelector(".flash-popup__count");
+  // init ทุก popup ที่มีอยู่ (รองรับหลายตัว)
+  function initPopup(popup) {
+    if (!popup || popup.__flashInited) return;
+    popup.__flashInited = true;
 
-  // กัน script พังถ้าไม่มีปุ่ม
-  if (!btn) {
-    return;
-  }
+    var btn = popup.querySelector(".flash-popup__close");
+    var count = popup.querySelector(".flash-popup__count");
+    if (!btn) return;
 
-  var COOLDOWN_SECONDS = 5; // รอให้กดปิดได้
-  var AUTO_CLOSE_MS = 10000; // ปิดเองอัตโนมัติ (10 วินาที)
+    var remaining = COOLDOWN_SECONDS;
 
-  var remaining = COOLDOWN_SECONDS;
+    function removeThisPopup() {
+      if (popup && popup.parentNode) popup.parentNode.removeChild(popup);
+    }
 
-  // initial: ปุ่มปิดยังใช้ไม่ได้
-  btn.disabled = true;
-  btn.style.cursor = "not-allowed";
+    // initial disabled
+    btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
+    if (count) count.textContent = "ปิดได้ใน " + remaining + " วินาที";
 
-  if (count) {
-    count.textContent = "ปิดได้ใน " + remaining + " วินาที";
-  }
+    var timer = setInterval(function () {
+      remaining--;
 
-  var timer = setInterval(function () {
-    remaining--;
-
-    if (remaining > 0) {
-      if (count) {
-        count.textContent = "ปิดได้ใน " + remaining + " วินาที";
+      if (remaining > 0) {
+        if (count) count.textContent = "ปิดได้ใน " + remaining + " วินาที";
+        return;
       }
-      return;
-    }
 
-    // หมดเวลา cooldown แล้ว
-    clearInterval(timer);
+      clearInterval(timer);
+      if (count) count.textContent = "";
 
-    if (count) {
-      count.textContent = "";
-    }
+      btn.disabled = false;
+      btn.removeAttribute("aria-disabled");
+      btn.classList.add("enabled");
+    }, 1000);
 
-    btn.disabled = false;
-    btn.classList.add("enabled");
-    btn.style.cursor = "pointer";
-  }, 1000);
+    // auto-close
+    setTimeout(removeThisPopup, AUTO_CLOSE_MS);
 
-  btn.addEventListener("click", function () {
-    if (btn.disabled) {
-      return;
-    }
+    // คลิกปุ่มปิด
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (btn.disabled) return;
+      removeThisPopup();
+    });
 
-    if (popup && popup.parentNode) {
-      popup.parentNode.removeChild(popup);
+    // คลิกที่ตัว popup (กันคนกดพลาด)
+    popup.addEventListener("click", function () {
+      if (btn.disabled) return;
+      removeThisPopup();
+    });
+  }
+
+  // init ของที่มีอยู่แล้ว
+  document.querySelectorAll(".flash-popup").forEach(initPopup);
+
+  // เผื่อมี popup โผล่มาทีหลัง (ajax/partial render)
+  var obs = new MutationObserver(function (mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      for (var j = 0; j < m.addedNodes.length; j++) {
+        var n = m.addedNodes[j];
+        if (!(n instanceof HTMLElement)) continue;
+
+        if (n.classList && n.classList.contains("flash-popup")) {
+          initPopup(n);
+        } else {
+          var found = n.querySelectorAll
+            ? n.querySelectorAll(".flash-popup")
+            : [];
+          found.forEach(initPopup);
+        }
+      }
     }
   });
 
-  // auto-close หลังจากครบเวลา
-  setTimeout(function () {
-    if (popup && popup.parentNode) {
-      popup.parentNode.removeChild(popup);
-    }
-  }, AUTO_CLOSE_MS);
+  obs.observe(document.documentElement, { childList: true, subtree: true });
 })();

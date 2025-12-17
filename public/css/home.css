@@ -66,7 +66,7 @@
 .home-container .filter-group select:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: var(--focus-ring);
   background: var(--bg-white);
 }
 
@@ -111,16 +111,17 @@
   border-color: var(--primary-light);
 }
 
-/* Booked State */
+/* Booked State
+   - ถ้าต้องการ "ให้กดดูรายละเอียดได้" อย่าปิด pointer-events */
 .home-container .item-card.booked {
-  opacity: 0.7;
-  cursor: not-allowed;
-  pointer-events: none;
+  opacity: 0.78;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .home-container .item-card.booked:hover {
-  transform: none;
-  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 /* Card Badges */
@@ -145,13 +146,19 @@
 }
 
 .home-container .badge-owner {
-  background: rgba(102, 126, 234, 0.95);
-  color: white;
+  background: rgba(30, 64, 175, 0.95);
+  color: var(--text-white);
 }
 
 .home-container .badge-booked {
   background: rgba(251, 191, 36, 0.95);
   color: rgba(0, 0, 0, 0.85);
+}
+
+/* badge พร้อมเช่า */
+.home-container .badge-available {
+  background: rgba(16, 185, 129, 0.95);
+  color: var(--text-white);
 }
 
 /* Card Image */
@@ -200,6 +207,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
   margin-top: auto;
   padding-top: 0.75rem;
   border-top: 1px solid var(--divider-color);
@@ -209,11 +217,21 @@
   color: var(--primary-color);
   font-size: 1rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.home-container .meta-deposit {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0.95;
 }
 
 .home-container .meta-date {
   color: var(--text-tertiary);
   font-size: 0.8125rem;
+  white-space: nowrap;
 }
 
 /* =========================================
@@ -235,10 +253,6 @@
   flex: 0 0 160px;
 }
 
-.home-container .items-section.compact .item-image img {
-  object-fit: cover;
-}
-
 .home-container .items-section.compact .item-details {
   padding: 1rem 1.25rem;
 }
@@ -255,6 +269,10 @@
   font-size: 0.9375rem;
 }
 
+.home-container .items-section.compact .meta-deposit {
+  font-size: 0.8125rem;
+}
+
 .home-container .items-section.compact .meta-date {
   font-size: 0.75rem;
 }
@@ -264,11 +282,14 @@
   padding: 0.3rem 0.6rem;
 }
 
+#homeEmptyState[hidden] {
+  display: none !important;
+}
+
 /* =========================================
    RESPONSIVE
    ========================================= */
 
-/* Tablet / small desktop */
 @media (max-width: 992px) {
   .home-container {
     max-width: 960px;
@@ -293,9 +314,13 @@
   .home-container .filter-group select {
     width: 100%;
   }
+
+  .home-container .item-meta {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
 
-/* Mobile */
 @media (max-width: 768px) {
   .home-container {
     max-width: 820px;
@@ -319,8 +344,17 @@
     font-size: 1.25rem;
   }
 
-  .home-container .item-price {
+  .home-container .meta-price {
     font-size: 1.25rem;
+  }
+
+  .home-container .meta-date {
+    font-size: 0.75rem;
+  }
+
+  .home-container .meta-deposit {
+    font-size: 0.95rem;
+    opacity: 0.9;
   }
 
   .home-container .items-section.compact .item-card {
@@ -341,7 +375,7 @@
     font-size: 1.05rem;
   }
 
-  .home-container .items-section.compact .item-price {
+  .home-container .items-section.compact .meta-price {
     font-size: 1.05rem;
   }
 
@@ -349,7 +383,7 @@
     font-size: 0.85rem;
   }
 
-  .home-container .items-section.compact .item-date {
+  .home-container .items-section.compact .meta-date {
     font-size: 0.75rem;
   }
 

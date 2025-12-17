@@ -12,6 +12,8 @@ require_once APP_PATH . '/includes/helpers.php';
 
 app_session_start();
 
+$csrfToken = csrf_token(); // แนบไป flow หน้า payment ให้ตรวจได้
+
 // รับ id จาก query
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 if ($id <= 0) {
@@ -45,11 +47,14 @@ if (!$item) {
 // ดึงรูปภาพทั้งหมดของพื้นที่นี้
 $imageUrls = [];
 try {
-    $images    = Database::fetchAll(
+    $images = Database::fetchAll(
         'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order',
         [$id]
     );
-    $imageUrls = array_column($images, 'image_url');
+    $imageUrls = array_values(array_filter(array_map(
+        fn($v) => is_string($v) ? trim($v) : '',
+        array_column($images, 'image_url')
+    )));
 } catch (Throwable $e) {
     app_log('property_detail_fetch_images_error', [
         'property_id' => $id,
@@ -60,7 +65,10 @@ try {
 
 // ถ้าไม่มีรูปใน property_images ให้ใช้ main_image
 if (empty($imageUrls) && !empty($item['main_image'])) {
-    $imageUrls = [(string) $item['main_image']];
+    $main = is_string($item['main_image']) ? trim($item['main_image']) : '';
+    if ($main !== '') {
+        $imageUrls = [$main];
+    }
 }
 
 // ถ้ายังไม่มีให้ใช้ placeholder
@@ -81,8 +89,8 @@ $statusClass = [
     'sold'      => 'status-sold',
 ];
 
-$rawStatus   = (string) ($item['status'] ?? 'available');
-$currentStatus = array_key_exists($rawStatus, $statusText) ? $rawStatus : 'available';
+$rawStatus      = (string) ($item['status'] ?? 'available');
+$currentStatus  = array_key_exists($rawStatus, $statusText) ? $rawStatus : 'available';
 
 // คำนวณมัดจำ / ราคา
 $priceRaw       = (int) ($item['price'] ?? 0);
@@ -103,13 +111,14 @@ if ($loggedInUser !== null) {
 
     $firstName = (string) ($loggedInUser['firstname'] ?? '');
     $lastName  = (string) ($loggedInUser['lastname'] ?? '');
-    $userFullName = trim($firstName . ' ' . $lastName) !== '' ? trim($firstName . ' ' . $lastName) : 'ไม่ระบุ';
+    $full = trim($firstName . ' ' . $lastName);
+    $userFullName = $full !== '' ? $full : 'ไม่ระบุ';
 
     // ถ้า session ไม่มี phone ค่อยยิง DB เอา
     $phoneFromSession = $loggedInUser['phone'] ?? null;
-    if ($phoneFromSession !== null && $phoneFromSession !== '') {
-        $userPhoneText = (string) $phoneFromSession;
-    } elseif (!empty($currentUserId)) {
+    if (is_string($phoneFromSession) && trim($phoneFromSession) !== '') {
+        $userPhoneText = trim($phoneFromSession);
+    } elseif ($currentUserId > 0) {
         try {
             $userRow = Database::fetchOne(
                 'SELECT phone FROM users WHERE id = ? LIMIT 1',
@@ -126,15 +135,20 @@ if ($loggedInUser !== null) {
         }
     }
 }
+
+$titleText = (string) ($item['title'] ?? '');
+$locationText = (string) ($item['location'] ?? '');
+$descText = (string) ($item['description'] ?? '');
+
 ?>
 <div class="detail-container compact">
     <div class="detail-wrapper">
         <div class="detail-topbar">
             <a href="?page=home" class="back-button minimal" aria-label="กลับหน้ารายการ">ย้อนกลับ</a>
             <div class="topbar-right">
-                <h1 class="detail-title"><?= e($item['title'] ?? ''); ?></h1>
-                <?php if (!empty($item['location'])): ?>
-                    <span class="meta-location">📍 <?= e($item['location']); ?></span>
+                <h1 class="detail-title"><?= e($titleText); ?></h1>
+                <?php if ($locationText !== ''): ?>
+                    <span class="meta-location">📍 <?= e($locationText); ?></span>
                 <?php endif; ?>
             </div>
         </div>
@@ -145,27 +159,17 @@ if ($loggedInUser !== null) {
                     <div class="main-image-wrapper">
                         <img
                             data-src="<?= e($imageUrls[0]); ?>"
-                            alt="<?= e($item['title'] ?? 'ภาพพื้นที่'); ?>"
+                            alt="<?= e($titleText !== '' ? $titleText : 'ภาพพื้นที่'); ?>"
                             id="mainImage"
                             class="main-image"
+                            loading="lazy"
                             style="background: var(--skeleton-bg);">
+
                         <?php if (count($imageUrls) > 1): ?>
-                            <button
-                                type="button"
-                                class="gallery-nav prev"
-                                onclick="changeImage(-1)"
-                                aria-label="รูปก่อนหน้า">
-                                ‹
-                            </button>
-                            <button
-                                type="button"
-                                class="gallery-nav next"
-                                onclick="changeImage(1)"
-                                aria-label="รูปถัดไป">
-                                ›
-                            </button>
+                            <button type="button" class="gallery-nav prev" onclick="changeImage(-1)" aria-label="รูปก่อนหน้า">‹</button>
+                            <button type="button" class="gallery-nav next" onclick="changeImage(1)" aria-label="รูปถัดไป">›</button>
                             <div class="image-counter" id="imageCounter">
-                                1 / <?= count($imageUrls); ?>
+                                1 / <?= (int) count($imageUrls); ?>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -178,6 +182,7 @@ if ($loggedInUser !== null) {
                                     class="thumb <?= $i === 0 ? 'active' : ''; ?>"
                                     data-index="<?= (int) $i; ?>"
                                     alt="ตัวอย่างรูปที่ <?= (int) ($i + 1); ?>"
+                                    loading="lazy"
                                     style="background: var(--skeleton-bg);">
                             <?php endforeach; ?>
                         </div>
@@ -186,7 +191,7 @@ if ($loggedInUser !== null) {
 
                 <div class="description-box" id="descriptionBox">
                     <h2>รายละเอียด</h2>
-                    <p><?= nl2br(e($item['description'] ?? '')); ?></p>
+                    <p><?= nl2br(e($descText)); ?></p>
                 </div>
 
                 <div class="date-selection" id="dateSection" style="display: none;">
@@ -197,6 +202,7 @@ if ($loggedInUser !== null) {
                                 <option value="<?= $d; ?>"><?= $d; ?></option>
                             <?php endfor; ?>
                         </select>
+
                         <select id="monthSelect" class="date-select">
                             <?php
                             $thaiMonths = [
@@ -214,17 +220,19 @@ if ($loggedInUser !== null) {
                                 'ธันวาคม',
                             ];
                             foreach ($thaiMonths as $i => $month): ?>
-                                <option value="<?= $i; ?>"><?= $month; ?></option>
+                                <option value="<?= (int) $i; ?>"><?= e($month); ?></option>
                             <?php endforeach; ?>
                         </select>
+
                         <select id="yearSelect" class="date-select">
                             <?php
                             $currentYear = (int) date('Y');
                             for ($y = $currentYear; $y <= $currentYear + 2; $y++): ?>
-                                <option value="<?= $y; ?>"><?= $y + 543; ?></option>
+                                <option value="<?= (int) $y; ?>"><?= (int) ($y + 543); ?></option>
                             <?php endfor; ?>
                         </select>
                     </div>
+
                     <div class="date-preview" id="datePreview"></div>
                 </div>
             </div>
@@ -233,9 +241,10 @@ if ($loggedInUser !== null) {
                 <div class="info-box">
                     <h2 id="boxTitle">ข้อมูลพื้นที่</h2>
 
-                    <div id="userBookingInfo" style="display: none;">
+                    <!-- ทำให้ CSS ติดจริง -->
+                    <div id="userBookingInfo" class="user-booking-info" style="display: none;">
                         <div class="user-info-item">
-                            <strong>ผู้จอง:</strong> <?= e($userFullName); ?>
+                            <strong>ผู้จอง (คุณ):</strong> <?= e($userFullName); ?>
                         </div>
                         <div class="user-info-item">
                             <strong>เบอร์ติดต่อ:</strong> <?= e($userPhoneText); ?>
@@ -246,27 +255,27 @@ if ($loggedInUser !== null) {
                         <div class="spec-item">
                             <span class="spec-label">📐 ขนาดพื้นที่:</span>
                             <span class="spec-value">
-                                <?= e($item['area'] !== null && $item['area'] !== '' ? $item['area'] : 'ไม่ระบุ'); ?>
+                                <?= e(($item['area'] ?? '') !== '' ? (string)$item['area'] : 'ไม่ระบุ'); ?>
                             </span>
                         </div>
                         <?php if (!empty($item['soil_type'])): ?>
                             <div class="spec-item">
                                 <span class="spec-label">🌱 ประเภทดิน:</span>
-                                <span class="spec-value"><?= e($item['soil_type']); ?></span>
+                                <span class="spec-value"><?= e((string)$item['soil_type']); ?></span>
                             </div>
                         <?php endif; ?>
                         <?php if (!empty($item['irrigation'])): ?>
                             <div class="spec-item">
                                 <span class="spec-label">💧 ระบบน้ำ:</span>
-                                <span class="spec-value"><?= e($item['irrigation']); ?></span>
+                                <span class="spec-value"><?= e((string)$item['irrigation']); ?></span>
                             </div>
                         <?php endif; ?>
                     </div>
 
                     <div id="statusBox" class="status-row">
                         <span class="status-label">สถานะ:</span>
-                        <span class="status-badge <?= $statusClass[$currentStatus]; ?>">
-                            <?= $statusText[$currentStatus]; ?>
+                        <span class="status-badge <?= e($statusClass[$currentStatus]); ?>">
+                            <?= e($statusText[$currentStatus]); ?>
                         </span>
                     </div>
 
@@ -286,45 +295,36 @@ if ($loggedInUser !== null) {
                                 </svg>
                                 <span>นี่คือรายการของคุณ</span>
                             </div>
-                            <a
-                                href="?page=edit_property&id=<?= (int) $id; ?>"
-                                class="btn-book btn-edit">
+                            <a href="?page=edit_property&id=<?= (int) $id; ?>" class="btn-book btn-edit">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                                 </svg>
                                 <span>แก้ไขรายการ</span>
                             </a>
+
                         <?php elseif ($currentStatus === 'available'): ?>
+
                             <?php if ($loggedInUser !== null): ?>
-                                <button
-                                    type="button"
-                                    class="btn-book"
-                                    onclick="showBookingForm()">
-                                    📝 จองพื้นที่เช่า
-                                </button>
+                                <button type="button" class="btn-book" onclick="showBookingForm()">📝 จองพื้นที่เช่า</button>
                             <?php else: ?>
                                 <a href="?page=signin" class="btn-book">🔐 เข้าสู่ระบบเพื่อจอง</a>
                             <?php endif; ?>
+
                         <?php else: ?>
-                            <button
-                                type="button"
-                                class="btn-book"
-                                disabled
-                                style="opacity: 0.5; cursor: not-allowed;">
+
+                            <button type="button" class="btn-book" disabled style="opacity: 0.5; cursor: not-allowed;">
                                 <?= $currentStatus === 'booked' ? 'ติดจองแล้ว' : 'ขายแล้ว'; ?>
                             </button>
+
                         <?php endif; ?>
                     </div>
 
                     <div id="bookingActions" style="display: none;">
-                        <button type="button" class="btn-confirm" onclick="confirmBooking()">
-                            ✅ ยืนยันการจอง
-                        </button>
-                        <button type="button" class="btn-cancel" onclick="cancelBooking()">
-                            ❌ ยกเลิก
-                        </button>
+                        <button type="button" class="btn-confirm" onclick="confirmBooking()">ยืนยันการจอง</button>
+                        <button type="button" class="btn-cancel" onclick="cancelBooking()">❌ ยกเลิก</button>
                     </div>
+
                 </div>
             </div>
         </div>
@@ -332,19 +332,31 @@ if ($loggedInUser !== null) {
 </div>
 
 <script>
-    const images = <?= json_encode($imageUrls, JSON_UNESCAPED_UNICODE); ?>;
+    // กัน XSS เวลาโยน JSON เข้า JS
+    const images = <?= json_encode(
+                        $imageUrls,
+                        JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+                    ); ?>;
+
+    const propertyId = <?= (int) $id; ?>;
+    const csrfToken = <?= json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
     let currentImageIndex = 0;
+    let datePickerInitialized = false;
 
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', () => {
+        // lazy load ให้ทั้ง main + thumbs (ถ้ามี util ก็ใช้ util)
+        if (typeof initLazyLoading === 'function') {
+            initLazyLoading();
+        } else {
+            document.querySelectorAll('img[data-src]').forEach((img) => {
+                img.src = img.getAttribute('data-src');
+                img.removeAttribute('data-src');
+            });
+        }
+
         const mainImg = document.getElementById('mainImage');
-        if (mainImg && mainImg.dataset.src) {
-            mainImg.src = mainImg.dataset.src;
-            mainImg.removeAttribute('data-src');
-        }
-
-        if (mainImg) {
-            mainImg.addEventListener('click', () => changeImage(1));
-        }
+        if (mainImg) mainImg.addEventListener('click', () => changeImage(1));
 
         const thumbs = document.querySelectorAll('#thumbs .thumb');
         thumbs.forEach((t) => {
@@ -365,7 +377,7 @@ if ($loggedInUser !== null) {
     function updateMainImage() {
         const main = document.getElementById('mainImage');
         const counter = document.getElementById('imageCounter');
-        if (!main || !images.length) return;
+        if (!main || !images || !images.length) return;
 
         main.src = images[currentImageIndex];
 
@@ -376,7 +388,7 @@ if ($loggedInUser !== null) {
     }
 
     function changeImage(direction) {
-        if (!images.length) return;
+        if (!images || !images.length) return;
         currentImageIndex += direction;
         if (currentImageIndex >= images.length) currentImageIndex = 0;
         if (currentImageIndex < 0) currentImageIndex = images.length - 1;
@@ -418,6 +430,13 @@ if ($loggedInUser !== null) {
     }
 
     function initializeDatePicker() {
+        if (datePickerInitialized) {
+            updateDaysInMonth();
+            updateDatePreview();
+            return;
+        }
+        datePickerInitialized = true;
+
         const daySelect = document.getElementById('daySelect');
         const monthSelect = document.getElementById('monthSelect');
         const yearSelect = document.getElementById('yearSelect');
@@ -477,18 +496,8 @@ if ($loggedInUser !== null) {
         const year = parseInt(yearSelect.value, 10);
 
         const thaiMonths = [
-            'มกราคม',
-            'กุมภาพันธ์',
-            'มีนาคม',
-            'เมษายน',
-            'พฤษภาคม',
-            'มิถุนายน',
-            'กรกฎาคม',
-            'สิงหาคม',
-            'กันยายน',
-            'ตุลาคม',
-            'พฤศจิกายน',
-            'ธันวาคม'
+            'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+            'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
         ];
 
         const selectedDate = new Date(year, monthIndex, day);
@@ -498,16 +507,14 @@ if ($loggedInUser !== null) {
         preview.style.display = 'block';
 
         if (selectedDate <= today) {
-            preview.innerHTML =
-                '<span class="error-text">กรุณาเลือกวันที่ถัดจากวันนี้อย่างน้อย 1 วัน</span>';
+            preview.innerHTML = '<span class="error-text">กรุณาเลือกวันที่ถัดจากวันนี้อย่างน้อย 1 วัน</span>';
             return;
         }
 
         const buddhistYear = year + 543;
         const dateStr = day + ' ' + thaiMonths[monthIndex] + ' ' + buddhistYear;
 
-        preview.innerHTML =
-            '<span class="preview-text">คุณเลือกวันที่ ' + dateStr + '</span>';
+        preview.innerHTML = '<span class="preview-text">คุณเลือกวันที่ ' + dateStr + '</span>';
     }
 
     function confirmBooking() {
@@ -524,31 +531,21 @@ if ($loggedInUser !== null) {
         if (!day || !month || !year) return;
 
         const thaiMonths = [
-            'มกราคม',
-            'กุมภาพันธ์',
-            'มีนาคม',
-            'เมษายน',
-            'พฤษภาคม',
-            'มิถุนายน',
-            'กรกฎาคม',
-            'สิงหาคม',
-            'กันยายน',
-            'ตุลาคม',
-            'พฤศจิกายน',
-            'ธันวาคม'
+            'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+            'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
         ];
         const buddhistYear = parseInt(year, 10) + 543;
         const dateStr = day + ' ' + thaiMonths[parseInt(month, 10)] + ' ' + buddhistYear;
 
-        const propertyId = <?= (int) $id; ?>;
+        if (!confirm('คุณต้องการจองพื้นที่นี้และนัดหมายวันที่ ' + dateStr + ' ใช่หรือไม่?')) return;
 
-        if (confirm('คุณต้องการจองพื้นที่นี้และนัดหมายวันที่ ' + dateStr + ' ใช่หรือไม่?')) {
-            window.location.href =
-                '?page=payment&id=' + propertyId +
-                '&day=' + encodeURIComponent(day) +
-                '&month=' + encodeURIComponent(month) +
-                '&year=' + encodeURIComponent(year);
-        }
+        // แนบ csrf ไปด้วย (หน้า payment ควร verify_csrf())
+        window.location.href =
+            '?page=payment&id=' + encodeURIComponent(propertyId) +
+            '&day=' + encodeURIComponent(day) +
+            '&month=' + encodeURIComponent(month) +
+            '&year=' + encodeURIComponent(year) +
+            '&csrf=' + encodeURIComponent(csrfToken);
     }
 
     function cancelBooking() {

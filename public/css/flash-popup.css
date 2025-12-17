@@ -42,9 +42,12 @@
 }
 .flash-popup__actions {
   display: flex;
+  align-items: center; /* สำคัญ */
   justify-content: flex-end;
+  gap: 8px; /* กันข้อความทับ */
   padding: 0 16px 14px;
 }
+
 .flash-popup__close {
   background: #111;
   color: #fff;
@@ -52,19 +55,31 @@
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
+  cursor: pointer; /* default กดได้ */
+  opacity: 1; /* default ไม่ดูโดนห้าม */
+}
+
+/* ตอน “ยัง disabled” ค่อยทำให้ดูโดนห้าม */
+.flash-popup__close:disabled {
   cursor: not-allowed;
   opacity: 0.7;
 }
+
+/* ตอนปลดล็อก (ถ้าใช้ class enabled) */
 .flash-popup__close.enabled {
-  cursor: pointer;
-  opacity: 1;
   background: #2563eb;
 }
+
 .flash-popup__count {
-  margin-left: 8px;
+  position: relative;
+  z-index: 1;
+  pointer-events: none; /* กันตัวหนังสือแย่งคลิก */
   color: #666;
   font-size: 12px;
+  margin-left: 0; /* ใช้ gap แทน */
+  white-space: nowrap; /* ไม่ให้แตกบรรทัดทับปุ่ม */
 }
+
 @media (max-width: 640px) {
   .flash-popup {
     left: 16px;

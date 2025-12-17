@@ -156,3 +156,106 @@ CREATE TABLE IF NOT EXISTS `bookings` (
     OR `rental_start_date` <= `rental_end_date`
   )
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+-- ====================================
+-- ตาราง contracts : ข้อมูลสัญญาเช่า
+-- ====================================
+CREATE TABLE IF NOT EXISTS `contracts` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `booking_id` BIGINT UNSIGNED NOT NULL,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `property_id` BIGINT UNSIGNED NOT NULL,
+  `owner_id` BIGINT UNSIGNED NOT NULL,
+  -- ข้อมูลสัญญา
+  `contract_number` VARCHAR(50) NOT NULL,
+  -- เลขที่สัญญา
+  `rental_period_months` INT NOT NULL DEFAULT 12,
+  -- ระยะเวลาเช่า (เดือน)
+  `start_date` DATE NOT NULL,
+  `end_date` DATE NOT NULL,
+  `monthly_rent` DECIMAL(12, 2) NOT NULL,
+  -- ค่าเช่าต่อเดือน
+  `deposit_amount` DECIMAL(12, 2) NOT NULL,
+  `total_amount` DECIMAL(12, 2) NOT NULL,
+  -- เงื่อนไขสัญญา
+  `terms_and_conditions` TEXT NULL,
+  -- ไฟล์สัญญา
+  `contract_file` VARCHAR(255) DEFAULT NULL,
+  -- PDF ที่เซ็นแล้ว
+  `status` ENUM(
+    'draft',
+    'waiting_signature',
+    'signed',
+    'active',
+    'expired',
+    'terminated'
+  ) NOT NULL DEFAULT 'draft',
+  -- ลายเซ็น
+  `tenant_signature` VARCHAR(255) DEFAULT NULL,
+  -- ลายเซ็นผู้เช่า
+  `owner_signature` VARCHAR(255) DEFAULT NULL,
+  -- ลายเซ็นเจ้าของ
+  `signed_at` DATETIME NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_contracts_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_contracts_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_contracts_property` FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_contracts_owner` FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  UNIQUE KEY `uq_contracts_booking` (`booking_id`),
+  UNIQUE KEY `uq_contracts_number` (`contract_number`),
+  KEY `idx_contracts_user` (`user_id`),
+  KEY `idx_contracts_property` (`property_id`),
+  KEY `idx_contracts_status` (`status`),
+  KEY `idx_contracts_dates` (`start_date`, `end_date`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+-- ====================================
+-- ตาราง payments : ประวัติการชำระเงินทั้งหมด
+-- ====================================
+CREATE TABLE IF NOT EXISTS `payments` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `booking_id` BIGINT UNSIGNED NOT NULL,
+  `contract_id` BIGINT UNSIGNED DEFAULT NULL,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `property_id` BIGINT UNSIGNED NOT NULL,
+  -- ประเภทการชำระ
+  `payment_type` ENUM(
+    'deposit',
+    'full_payment',
+    'monthly_rent',
+    'refund',
+    'penalty'
+  ) NOT NULL,
+  `amount` DECIMAL(12, 2) NOT NULL,
+  `payment_method` ENUM('promptpay', 'bank_transfer', 'cash', 'other') NOT NULL DEFAULT 'promptpay',
+  `transaction_ref` VARCHAR(100) DEFAULT NULL,
+  -- เลขที่อ้างอิงธุรกรรม
+  -- สลิปการโอน
+  `slip_image` VARCHAR(255) DEFAULT NULL,
+  `payment_status` ENUM('pending', 'verified', 'rejected') NOT NULL DEFAULT 'pending',
+  `verified_by` BIGINT UNSIGNED DEFAULT NULL,
+  -- admin ที่ตรวจสอบ
+  `verified_at` DATETIME NULL,
+  `rejection_reason` TEXT NULL,
+  `payment_date` DATE NOT NULL,
+  -- วันที่ชำระ
+  `due_date` DATE NULL,
+  -- วันครบกำหนด (สำหรับค่าเช่ารายเดือน)
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_payments_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_payments_contract` FOREIGN KEY (`contract_id`) REFERENCES `contracts`(`id`) ON DELETE
+  SET NULL ON UPDATE CASCADE,
+    CONSTRAINT `fk_payments_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_payments_property` FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_payments_verified_by` FOREIGN KEY (`verified_by`) REFERENCES `users`(`id`) ON DELETE
+  SET NULL ON UPDATE CASCADE,
+    KEY `idx_payments_booking` (`booking_id`),
+    KEY `idx_payments_contract` (`contract_id`),
+    KEY `idx_payments_user` (`user_id`),
+    KEY `idx_payments_property` (`property_id`),
+    KEY `idx_payments_type` (`payment_type`),
+    KEY `idx_payments_status` (`payment_status`),
+    KEY `idx_payments_date` (`payment_date`),
+    CONSTRAINT `chk_payments_amount_positive` CHECK (`amount` > 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
