@@ -1,4 +1,7 @@
-@import url("variables.css");
+/**
+ * Payment Page Styles
+ * Note: variables.css is already imported via base.css
+ */
 
 /* ================================
    PAYMENT CONTAINER
@@ -20,6 +23,7 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
 }
+
 .payment-title {
   font-size: 1.4rem;
   color: var(--text-primary);
@@ -27,6 +31,7 @@
   font-weight: var(--font-bold);
   letter-spacing: 0.3px;
 }
+
 .payment-subtitle {
   font-size: 0.9rem;
   color: var(--text-secondary);
@@ -70,6 +75,7 @@
   flex-direction: column;
   gap: var(--spacing-sm);
 }
+
 .booking-list li {
   display: flex;
   justify-content: space-between;
@@ -78,14 +84,17 @@
   background: var(--bg-gray);
   border-radius: var(--radius-sm);
 }
+
 .bl-label {
   font-weight: var(--font-semibold);
   color: var(--text-secondary);
 }
+
 .bl-value {
   font-weight: var(--font-semibold);
   color: var(--text-primary);
 }
+
 .ref-code {
   font-size: 1.1rem;
   color: var(--primary-color);
@@ -109,6 +118,7 @@
   border: 3px solid var(--primary-color);
   border-radius: var(--radius-md);
 }
+
 .qr-img {
   max-width: 300px;
   width: 100%;
@@ -121,24 +131,29 @@
   padding: var(--spacing-md);
   border-radius: var(--radius-sm);
 }
-.pay-meta > div {
+
+.pay-meta>div {
   display: flex;
   justify-content: space-between;
   padding: var(--spacing-xs) 0;
   border-bottom: 1px solid var(--border-color);
 }
-.pay-meta > div:last-child {
+
+.pay-meta>div:last-child {
   border-bottom: none;
 }
+
 .pay-meta .meta-label {
   color: var(--text-secondary);
   font-weight: var(--font-medium);
   margin-right: var(--spacing-xs);
 }
+
 .pay-meta .meta-value {
   color: var(--text-primary);
   font-weight: var(--font-semibold);
 }
+
 .pay-meta .price {
   color: var(--primary-color);
 }
@@ -166,11 +181,13 @@
   transition: var(--transition-fast);
   text-align: center;
 }
+
 .upload-label:hover {
   background: var(--primary-light);
   transform: translateY(-2px);
   box-shadow: var(--shadow-sm);
 }
+
 .upload-input {
   display: none;
 }
@@ -218,6 +235,7 @@
   color: var(--bg-white);
   box-shadow: var(--shadow-md);
 }
+
 .btn-confirm-payment:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
@@ -228,6 +246,7 @@
   color: var(--text-secondary);
   border: 2px solid var(--border-color);
 }
+
 .btn-cancel-payment:hover {
   background: var(--bg-gray);
   border-color: var(--status-sold-text);

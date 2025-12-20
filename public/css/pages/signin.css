@@ -1,4 +1,7 @@
-@import url("variables.css");
+/**
+ * Sign In Page Styles
+ * Note: variables.css is already imported via base.css
+ */
 
 /* ============================================
    SIGN IN PAGE - MINIMALIST DESIGN

@@ -1,0 +1,179 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  min-width: 300px;
+  max-width: 500px;
+  padding: var(--spacing-md);
+  background: var(--bg-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  border-left: 4px solid var(--primary-color);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  animation: toast-slide-in 0.3s ease;
+  z-index: 9999;
+}
+
+.toast-success {
+  border-left-color: var(--status-available-text);
+}
+
+.toast-error {
+  border-left-color: var(--status-sold-text);
+}
+
+.toast-warning {
+  border-left-color: var(--status-booked-text);
+}
+
+.toast-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.toast-content {
+  flex: 1;
+}
+
+.toast-title {
+  font-weight: var(--font-semibold);
+  margin-bottom: 0.25rem;
+}
+
+.toast-message {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.flash-popup {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  max-width: 360px;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  border: 1px solid #eee;
+}
+
+.flash-popup__bar {
+  height: 4px;
+}
+
+.flash-popup[data-type="success"] .flash-popup__bar {
+  background: #22c55e;
+}
+
+.flash-popup[data-type="error"] .flash-popup__bar {
+  background: #ef4444;
+}
+
+.flash-popup__content {
+  padding: 14px 16px 12px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.flash-popup__icon {
+  flex: 0 0 auto;
+}
+
+.flash-popup[data-type="success"] .flash-popup__icon {
+  color: #16a34a;
+}
+
+.flash-popup[data-type="error"] .flash-popup__icon {
+  color: #dc2626;
+}
+
+.flash-popup__msg {
+  flex: 1 1 auto;
+  color: #111;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.flash-popup__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
+.flash-popup__close {
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 1;
+  transition: all 0.2s ease;
+}
+
+.flash-popup__close:hover {
+  background: #333;
+}
+
+.flash-popup__close:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.flash-popup__close.enabled {
+  background: #2563eb;
+}
+
+.flash-popup__close.enabled:hover {
+  background: #1d4ed8;
+}
+
+.flash-popup__count {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+  color: #666;
+  font-size: 12px;
+  margin-left: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .flash-popup {
+    left: 16px;
+    right: 16px;
+    top: auto;
+    bottom: 16px;
+  }
+
+  .toast {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+  }
+}

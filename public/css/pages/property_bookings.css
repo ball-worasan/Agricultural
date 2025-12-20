@@ -1,4 +1,7 @@
-@import url("variables.css");
+/**
+ * Property Bookings Page Styles
+ * Note: variables.css is already imported via base.css
+ */
 
 /* Property Bookings Page */
 .property-bookings-container {

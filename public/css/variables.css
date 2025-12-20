@@ -126,12 +126,15 @@
 .mt-1 {
   margin-top: var(--spacing-xs);
 }
+
 .mt-2 {
   margin-top: var(--spacing-sm);
 }
+
 .mt-3 {
   margin-top: var(--spacing-md);
 }
+
 .mt-4 {
   margin-top: var(--spacing-lg);
 }
@@ -139,12 +142,15 @@
 .mb-1 {
   margin-bottom: var(--spacing-xs);
 }
+
 .mb-2 {
   margin-bottom: var(--spacing-sm);
 }
+
 .mb-3 {
   margin-bottom: var(--spacing-md);
 }
+
 .mb-4 {
   margin-bottom: var(--spacing-lg);
 }
@@ -152,12 +158,15 @@
 .p-1 {
   padding: var(--spacing-xs);
 }
+
 .p-2 {
   padding: var(--spacing-sm);
 }
+
 .p-3 {
   padding: var(--spacing-md);
 }
+
 .p-4 {
   padding: var(--spacing-lg);
 }
@@ -169,21 +178,27 @@
 .text-xs {
   font-size: var(--text-xs);
 }
+
 .text-sm {
   font-size: var(--text-sm);
 }
+
 .text-base {
   font-size: var(--text-base);
 }
+
 .text-lg {
   font-size: var(--text-lg);
 }
+
 .text-xl {
   font-size: var(--text-xl);
 }
+
 .text-2xl {
   font-size: var(--text-2xl);
 }
+
 .text-3xl {
   font-size: var(--text-3xl);
 }
@@ -191,12 +206,15 @@
 .font-normal {
   font-weight: var(--font-normal);
 }
+
 .font-medium {
   font-weight: var(--font-medium);
 }
+
 .font-semibold {
   font-weight: var(--font-semibold);
 }
+
 .font-bold {
   font-weight: var(--font-bold);
 }
@@ -204,9 +222,11 @@
 .text-primary {
   color: var(--text-primary);
 }
+
 .text-secondary {
   color: var(--text-secondary);
 }
+
 .text-tertiary {
   color: var(--text-tertiary);
 }
@@ -214,9 +234,11 @@
 .leading-tight {
   line-height: var(--leading-tight);
 }
+
 .leading-normal {
   line-height: var(--leading-normal);
 }
+
 .leading-loose {
   line-height: var(--leading-loose);
 }
@@ -247,6 +269,7 @@
   100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.75;
   }
@@ -256,14 +279,11 @@
   0% {
     transform: translateX(-100%);
   }
+
   100% {
     transform: translateX(100%);
   }
 }
-
-/* =========================================
-   EMPTY STATE
-   ========================================= */
 
 .empty-state {
   display: flex;
@@ -366,6 +386,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -376,6 +397,7 @@
     transform: scale(0.96);
     opacity: 0;
   }
+
   to {
     transform: scale(1);
     opacity: 1;

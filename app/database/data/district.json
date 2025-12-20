@@ -1,0 +1,8 @@
+[
+  {"id": 1, "name": "เขตพระนคร", "province_id": 1},
+  {"id": 2, "name": "เขตดุสิต", "province_id": 1},
+  {"id": 3, "name": "เขตหนองจอก", "province_id": 1},
+  {"id": 4, "name": "เขตบางรัก", "province_id": 1},
+  {"id": 5, "name": "เขตบางเขน", "province_id": 1},
+  {"id": 6, "name": "เขตบางกะปิ", "province_id": 1}
+]

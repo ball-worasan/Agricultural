@@ -1,4 +1,7 @@
-@import url("variables.css");
+/**
+ * Profile Page Styles
+ * Note: variables.css is already imported via base.css
+ */
 
 /* ============================================
    PROFILE PAGE - MINIMALIST DESIGN

@@ -1,4 +1,7 @@
-@import url("variables.css");
+/**
+ * Property Detail Page Styles
+ * Note: variables.css is already imported via base.css
+ */
 
 /* =========================================
    LAYOUT
@@ -158,6 +161,7 @@
 .gallery-nav.prev {
   left: 0.75rem;
 }
+
 .gallery-nav.next {
   right: 0.75rem;
 }
@@ -268,7 +272,7 @@
   font-size: 0.9rem;
 }
 
-.spec-item + .spec-item {
+.spec-item+.spec-item {
   margin-top: 0.25rem;
 }
 
@@ -571,6 +575,7 @@
   .detail-content {
     grid-template-columns: 1fr;
   }
+
   .topbar-right {
     align-items: flex-start;
   }
@@ -589,6 +594,7 @@
   .detail-title {
     font-size: 1.4rem;
   }
+
   .main-image-wrapper {
     min-height: 220px;
   }

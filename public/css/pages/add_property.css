@@ -1,4 +1,7 @@
-@import url("variables.css");
+/**
+ * Add/Edit Property Page Styles
+ * Note: variables.css is already imported via base.css
+ */
 
 /* ============================================
    ADD PROPERTY PAGE - MINIMALIST DESIGN

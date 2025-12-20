@@ -2,33 +2,63 @@
 
 declare(strict_types=1);
 
-// ให้ไฟล์นี้ทำงานได้ทั้งกรณีถูก include ผ่าน index.php และถูกเปิดตรง ๆ (dev)
+// ----------------------------
+// โหลดไฟล์แบบกันพลาด
+// ----------------------------
 if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2)); // จาก /app/public/pages → /app
+  define('APP_PATH', dirname(__DIR__, 2));
 }
 
-require_once APP_PATH . '/config/Database.php';
-require_once APP_PATH . '/includes/helpers.php';
+$databaseFile = APP_PATH . '/config/Database.php';
+if (!is_file($databaseFile)) {
+  app_log('history_database_file_missing', ['file' => $databaseFile]);
+  http_response_code(500);
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
+  return;
+}
 
-app_session_start();
+$helpersFile = APP_PATH . '/includes/helpers.php';
+if (!is_file($helpersFile)) {
+  app_log('history_helpers_file_missing', ['file' => $helpersFile]);
+  http_response_code(500);
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
+  return;
+}
 
-// ตรวจสอบการล็อกอินด้วย helper กลาง
+require_once $databaseFile;
+require_once $helpersFile;
+
+// ----------------------------
+// เริ่มเซสชัน
+// ----------------------------
+try {
+  app_session_start();
+} catch (Throwable $e) {
+  app_log('history_session_error', ['error' => $e->getMessage()]);
+  http_response_code(500);
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
+  return;
+}
+
+// ----------------------------
+// เช็กสิทธิ์ล็อกอิน
+// ----------------------------
 $user = current_user();
 if ($user === null) {
+  flash('error', 'กรุณาเข้าสู่ระบบก่อน');
   redirect('?page=signin');
 }
 
 $userId = (int) ($user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('history_invalid_user', ['session_user' => $user]);
+  flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
   redirect('?page=signin');
 }
 
-/**
- * ---------- AJAX SECTION ----------
- * ?page=history&action=get_booking / cancel_booking
- * ตอบกลับเป็น JSON แล้ว exit()
- */
+// ----------------------------
+// จัดการคำขอ AJAX
+// ----------------------------
 if (isset($_GET['action'])) {
   $action = (string) ($_GET['action'] ?? '');
 
@@ -198,7 +228,7 @@ function bookingBadgeClass(string $status): string
   return 'badge-book-other';
 }
 
-// Summary counters
+// สรุปตัวนับสถานะ
 $summary = [
   'waiting'         => 0,
   'deposit_success' => 0,

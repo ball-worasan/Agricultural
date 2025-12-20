@@ -1,8 +1,8 @@
-@import url("variables.css");
-
-/* =========================================
-   HOME PAGE WRAPPER
-   ========================================= */
+/**
+ * Home Page Styles
+ * Sirinat Agricultural Land Rental
+ * variables.css imported via base.css
+ */
 
 .home-container {
   width: 100%;
@@ -12,10 +12,7 @@
   padding: var(--spacing-md);
 }
 
-/* =========================================
-   FILTER SECTION
-   ========================================= */
-
+/* FILTER */
 .home-container .filter-section {
   background: var(--bg-white);
   padding: 1rem 1.25rem;
@@ -75,25 +72,18 @@
   background: var(--bg-white);
 }
 
-/* =========================================
-   ITEMS SECTION
-   ========================================= */
-
+/* ITEMS */
 .home-container .items-section {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 
-/* Compact Variant */
 .home-container .items-section.compact {
   gap: 0.75rem;
 }
 
-/* =========================================
-   ITEM CARD (BASE)
-   ========================================= */
-
+/* CARD */
 .home-container .item-card {
   background: var(--bg-white);
   border-radius: 12px;
@@ -103,6 +93,10 @@
   position: relative;
   cursor: pointer;
   transition: all 0.2s ease;
+
+  /* perf: skip offscreen work */
+  content-visibility: auto;
+  contain-intrinsic-size: 140px;
 }
 
 .home-container .item-card:hover {
@@ -111,8 +105,6 @@
   border-color: var(--primary-light);
 }
 
-/* Booked State
-   - ถ้าต้องการ "ให้กดดูรายละเอียดได้" อย่าปิด pointer-events */
 .home-container .item-card.booked {
   opacity: 0.78;
   cursor: pointer;
@@ -124,7 +116,7 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-/* Card Badges */
+/* Badges */
 .home-container .card-badges {
   position: absolute;
   top: 0.75rem;
@@ -155,13 +147,12 @@
   color: rgba(0, 0, 0, 0.85);
 }
 
-/* badge พร้อมเช่า */
 .home-container .badge-available {
   background: rgba(16, 185, 129, 0.95);
   color: var(--text-white);
 }
 
-/* Card Image */
+/* Image */
 .home-container .item-image {
   width: 30%;
   min-height: 200px;
@@ -174,13 +165,14 @@
   object-fit: cover;
   transition: transform 0.3s ease;
   background: var(--skeleton-bg);
+  display: block; /* prevent CLS */
 }
 
 .home-container .item-card:hover .item-image img {
   transform: scale(1.1);
 }
 
-/* Card Details */
+/* Details */
 .home-container .item-details {
   flex: 1;
   padding: 1.25rem 1.5rem;
@@ -234,17 +226,17 @@
   white-space: nowrap;
 }
 
-/* =========================================
-   COMPACT VARIANT (LIST MODE)
-   ========================================= */
-
-.home-container .items-section.compact .item-card {
-  min-height: 140px;
-  transition: all 0.2s ease;
+#homeEmptyState {
+  margin-top: var(--spacing-md);
 }
 
-.home-container .items-section.compact .item-card:hover {
-  transform: translateY(-2px);
+#homeEmptyState[hidden] {
+  display: none !important;
+}
+
+/* Compact */
+.home-container .items-section.compact .item-card {
+  min-height: 140px;
 }
 
 .home-container .items-section.compact .item-image {
@@ -282,14 +274,45 @@
   padding: 0.3rem 0.6rem;
 }
 
-#homeEmptyState[hidden] {
-  display: none !important;
+/* Pagination */
+.home-container .pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md) 0;
 }
 
-/* =========================================
-   RESPONSIVE
-   ========================================= */
+.home-container .page-link {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-white);
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
 
+.home-container .page-link:hover {
+  background: var(--primary-color);
+  color: var(--text-white);
+  border-color: var(--primary-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-container .page-info {
+  padding: 0.5rem 1rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+/* Responsive */
 @media (max-width: 992px) {
   .home-container {
     max-width: 960px;

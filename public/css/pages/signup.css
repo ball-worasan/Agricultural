@@ -1,9 +1,3 @@
-@import url("variables.css");
-
-/* ============================================
-   SIGN UP PAGE - MINIMALIST DESIGN
-   ============================================ */
-
 .signup-container {
   width: 100%;
   min-height: 100vh;
@@ -28,7 +22,6 @@
   padding: 2.5rem 2rem;
 }
 
-/* Header */
 .signup-header {
   text-align: center;
   margin-bottom: 2rem;
@@ -49,7 +42,6 @@
   font-weight: 400;
 }
 
-/* Form */
 .signup-form {
   width: 100%;
   margin-bottom: 1.5rem;
@@ -93,7 +85,6 @@
   color: var(--text-tertiary);
 }
 
-/* Form Row (2 columns) */
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -105,7 +96,6 @@
   margin-bottom: 0;
 }
 
-/* Password Input Wrapper */
 .password-input-wrapper {
   position: relative;
 }
