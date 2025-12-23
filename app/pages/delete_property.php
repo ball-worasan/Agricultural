@@ -5,8 +5,11 @@ declare(strict_types=1);
 // ----------------------------
 // โหลดไฟล์แบบกันพลาด
 // ----------------------------
+if (!defined('BASE_PATH')) {
+  define('BASE_PATH', dirname(__DIR__, 2));
+}
 if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
+  define('APP_PATH', BASE_PATH . '/app');
 }
 
 $databaseFile = APP_PATH . '/config/Database.php';
@@ -49,7 +52,7 @@ if ($user === null) {
   redirect('?page=signin');
 }
 
-$userId = (int)($user['id'] ?? 0);
+$userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('delete_property_invalid_user', ['session_user' => $user]);
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
@@ -75,32 +78,32 @@ try {
   redirect('?page=my_properties');
 }
 
-$propertyId = (int)($_POST['property_id'] ?? 0);
-if ($propertyId <= 0) {
+$areaId = (int)($_POST['area_id'] ?? 0);
+if ($areaId <= 0) {
   flash('error', 'ไม่พบข้อมูลพื้นที่ที่ต้องการลบ');
   redirect('?page=my_properties');
 }
 
 try {
   // ✅ ต้องเป็นของ user นี้เท่านั้น
-  $property = Database::fetchOne(
-    'SELECT id, owner_id, main_image FROM properties WHERE id = ? LIMIT 1',
-    [$propertyId]
+  $area = Database::fetchOne(
+    'SELECT area_id, user_id FROM rental_area WHERE area_id = ? AND user_id = ? LIMIT 1',
+    [$areaId, $userId]
   );
 
-  if (!$property || (int)$property['owner_id'] !== $userId) {
+  if (!$area || (int)$area['user_id'] !== $userId) {
     app_log('delete_property_unauthorized', [
-      'user_id'     => $userId,
-      'property_id' => $propertyId,
+      'user_id'  => $userId,
+      'area_id' => $areaId,
     ]);
     flash('error', 'คุณไม่มีสิทธิ์ลบรายการนี้');
     redirect('?page=my_properties');
   }
 
-  // ดึงรูปทั้งหมดของ property นี้
+  // ดึงรูปทั้งหมดของพื้นที่นี้
   $images = Database::fetchAll(
-    'SELECT image_url FROM property_images WHERE property_id = ?',
-    [$propertyId]
+    'SELECT image_url FROM area_image WHERE area_id = ?',
+    [$areaId]
   );
 
   // ✅ โฟลเดอร์ไฟล์จริงอยู่ใต้ public
@@ -118,12 +121,7 @@ try {
     }
   }
 
-  $main = (string)($property['main_image'] ?? '');
-  if ($main !== '' && strpos($main, $allowedPrefix) === 0) {
-    $filePaths[$publicRoot . $main] = true;
-  }
-
-  Database::transaction(function () use ($propertyId, $filePaths, $userId) {
+  Database::transaction(function () use ($areaId, $filePaths, $userId) {
     // ลบไฟล์จริง (ถ้ามี)
     foreach (array_keys($filePaths) as $path) {
       if (is_file($path)) {
@@ -132,30 +130,30 @@ try {
     }
 
     // ลบรูปภาพจากฐานข้อมูล
-    Database::execute('DELETE FROM property_images WHERE property_id = ?', [$propertyId]);
+    Database::execute('DELETE FROM area_image WHERE area_id = ?', [$areaId]);
 
-    // ลบการจองที่อ้างถึง property นี้
-    Database::execute('DELETE FROM bookings WHERE property_id = ?', [$propertyId]);
+    // ลบการจองที่อ้างถึงพื้นที่นี้ (มี ON DELETE CASCADE แต่ลบไว้อุ่นใจ)
+    Database::execute('DELETE FROM booking_deposit WHERE area_id = ?', [$areaId]);
 
-    // ลบ property
+    // ลบพื้นที่
     Database::execute(
-      'DELETE FROM properties WHERE id = ? AND owner_id = ?',
-      [$propertyId, $userId]
+      'DELETE FROM rental_area WHERE area_id = ? AND user_id = ?',
+      [$areaId, $userId]
     );
   });
 
   app_log('delete_property_success', [
-    'user_id'     => $userId,
-    'property_id' => $propertyId,
+    'user_id' => $userId,
+    'area_id' => $areaId,
   ]);
 
   flash('success', 'ลบรายการพื้นที่เรียบร้อยแล้ว');
   redirect('?page=my_properties');
 } catch (Throwable $e) {
   app_log('delete_property_error', [
-    'user_id'     => $userId,
-    'property_id' => $propertyId,
-    'error'       => $e->getMessage(),
+    'user_id' => $userId,
+    'area_id' => $areaId,
+    'error'   => $e->getMessage(),
   ]);
 
   flash('error', 'เกิดข้อผิดพลาดในการลบรายการ กรุณาลองใหม่อีกครั้ง');

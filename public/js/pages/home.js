@@ -49,6 +49,8 @@
           el,
           province: (el.getAttribute("data-province") || "").trim(),
           district: (el.getAttribute("data-district") || "").trim(),
+          districtId:
+            parseInt(el.getAttribute("data-district-id") || "0", 10) || 0,
           price: parseInt(el.getAttribute("data-price") || "0", 10) || 0,
           date: el.getAttribute("data-date") || "", // รูปแบบ YYYY-MM-DD
           dateTs:
@@ -71,12 +73,16 @@
           return;
         }
 
-        const provinceFilter = provinceSelect
-          ? provinceSelect.value.trim()
-          : "";
+        const provinceId = provinceSelect ? provinceSelect.value.trim() : "";
+        const provinceName =
+          provinceId && provinceSelect
+            ? provinceSelect.selectedOptions[0]?.getAttribute("data-name") || ""
+            : "";
         const priceFilter = priceSelect ? priceSelect.value : "";
         const sortFilter = sortSelect ? sortSelect.value : "price-low";
-        const districtFilter = districtSelect ? districtSelect.value.trim() : "";
+        const districtFilterId = districtSelect
+          ? parseInt(districtSelect.value.trim(), 10) || 0
+          : 0;
 
         const q = getQuery();
         const range = priceFilter ? parsePriceRange(priceFilter) : null;
@@ -88,11 +94,11 @@
 
           if (q && !it.title.includes(q) && !it.location.includes(q))
             ok = false;
-          if (ok && provinceFilter && it.province !== provinceFilter)
-            ok = false;
+          if (ok && provinceName && it.province !== provinceName) ok = false;
           if (ok && range && (it.price < range.min || it.price > range.max))
             ok = false;
-          if (ok && districtFilter && it.district !== districtFilter) ok = false;
+          if (ok && districtFilterId && it.districtId !== districtFilterId)
+            ok = false;
 
           it.el.style.display = ok ? "" : "none";
           if (ok) visible.push(it);
@@ -121,7 +127,66 @@
       t = setTimeout(apply, 80);
     };
 
-    [provinceSelect, districtSelect, priceSelect, sortSelect].forEach((el) => {
+    // Province-District cascade
+    const setupProvinceCascade = () => {
+      if (!provinceSelect || !districtSelect) return;
+
+      // สำรองตัวเลือกอำเภอทั้งหมดครั้งแรก
+      const allDistrictOptions = Array.from(
+        districtSelect.querySelectorAll("option[data-province-id]")
+      ).map((opt) => ({
+        value: opt.value,
+        text: opt.textContent,
+        provinceId: String(opt.getAttribute("data-province-id")).trim(),
+      }));
+
+      const updateDistricts = () => {
+        const selectedProvinceId = String(provinceSelect.value || "").trim();
+        const placeholder = districtSelect.querySelector("option[value='']");
+
+        // ลบตัวเลือกอำเภอ ยกเว้น placeholder
+        Array.from(districtSelect.options)
+          .slice(1)
+          .forEach((opt) => opt.remove());
+
+        if (!selectedProvinceId) {
+          // ไม่ได้เลือกจังหวัด - ปิดการใช้งาน
+          districtSelect.disabled = true;
+          if (placeholder) placeholder.textContent = "เลือกจังหวัดก่อน";
+          districtSelect.value = "";
+        } else {
+          // เลือกจังหวัดแล้ว - เปิดการใช้งาน และ เพิ่มอำเภอที่ตรงกัน
+          districtSelect.disabled = false;
+          if (placeholder) placeholder.textContent = "ทั้งหมด";
+          districtSelect.value = "";
+
+          const matchingDistricts = allDistrictOptions.filter(
+            (d) => d.provinceId === selectedProvinceId
+          );
+
+          matchingDistricts.forEach((optData) => {
+            const newOption = document.createElement("option");
+            newOption.value = optData.value;
+            newOption.textContent = optData.text;
+            newOption.setAttribute("data-province-id", optData.provinceId);
+            districtSelect.appendChild(newOption);
+          });
+
+          if (matchingDistricts.length === 0 && placeholder) {
+            placeholder.textContent = "ไม่มีอำเภอในจังหวัดนี้";
+          }
+        }
+
+        scheduleApply();
+      };
+
+      provinceSelect.addEventListener("change", updateDistricts);
+      updateDistricts(); // ตั้งค่าเริ่มต้น
+    };
+
+    setupProvinceCascade();
+
+    [districtSelect, priceSelect, sortSelect].forEach((el) => {
       if (!el) return;
       el.addEventListener("change", scheduleApply);
     });
@@ -141,4 +206,11 @@
 
     apply();
   };
+
+  // เรียกใช้อัตโนมัติเมื่อ DOM พร้อม
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", App.initHomeFilters);
+  } else {
+    App.initHomeFilters();
+  }
 })();

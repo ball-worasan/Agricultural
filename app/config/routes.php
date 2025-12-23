@@ -75,14 +75,14 @@ return [
     'title' => 'เพิ่มพื้นที่ปล่อยเช่า',
     'view'  => 'add_property',
     'css'   => ['pages/add_property.css'],
-    'js'    => ['pages/add_property.js', 'features/property-images.js'],
+    'js'    => ['pages/add_property.js'],
     'auth'  => true,
   ],
   'edit_property' => [
     'title' => 'แก้ไขพื้นที่ปล่อยเช่า',
     'view'  => 'edit_property',
     'css'   => ['pages/add_property.css'],
-    'js'    => ['pages/edit_property.js', 'features/property-images.js'],
+    'js'    => ['pages/edit_property.js'],
     'auth'  => true,
   ],
   'delete_property' => [
@@ -112,13 +112,6 @@ return [
     'js'    => ['pages/payment_verification.js'],
     'auth'  => true,
     'admin' => true,
-  ],
-  'notifications' => [
-    'title' => 'การแจ้งเตือน',
-    'view'  => 'notifications',
-    'css'   => ['pages/history.css'],
-    'js'    => ['pages/notifications.js'],
-    'auth'  => true,
   ],
   'reports' => [
     'title' => 'รายงานและสถิติ',

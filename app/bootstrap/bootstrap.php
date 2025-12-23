@@ -12,6 +12,13 @@ if (!defined('APP_PATH')) {
     define('APP_PATH', BASE_PATH . '/app');
 }
 
+// Load constants
+$constantsFile = APP_PATH . '/config/constants.php';
+if (!is_file($constantsFile)) {
+    throw new RuntimeException('Constants file not found: ' . $constantsFile);
+}
+require_once $constantsFile;
+
 // Load helpers
 $helpersFile = APP_PATH . '/includes/helpers.php';
 if (!is_file($helpersFile)) {

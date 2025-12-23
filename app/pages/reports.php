@@ -44,7 +44,7 @@ try {
 // เช็กสิทธิ์แอดมิน
 // ----------------------------
 $user = current_user();
-if ($user === null || ($user['role'] ?? '') !== 'admin') {
+if ($user === null || ($user['role'] ?? 0) !== ROLE_ADMIN) {
   flash('error', 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
   redirect('?page=signin');
 }

@@ -27,7 +27,7 @@ if (!class_exists('Database')) {
 }
 
 $user   = current_user();
-$userId = isset($user['id']) ? (int)$user['id'] : null;
+$userId = isset($user['user_id']) ? (int)$user['user_id'] : (isset($user['id']) ? (int)$user['id'] : null);
 
 if (!defined('PROPERTIES_PER_PAGE')) {
   define('PROPERTIES_PER_PAGE', 24);
@@ -39,7 +39,7 @@ $offset      = ($currentPage - 1) * PROPERTIES_PER_PAGE;
 
 $totalRow = 0;
 try {
-  $row = Database::fetchOne("SELECT COUNT(*) AS cnt FROM Rental_Area");
+  $row = Database::fetchOne("SELECT COUNT(*) AS cnt FROM rental_area");
   $totalRow = isset($row['cnt']) ? (int)$row['cnt'] : 0;
 } catch (Throwable $e) {
   app_log('home_count_error', [
@@ -72,18 +72,19 @@ try {
       ra.deposit_percent,
       ra.area_size,
       ra.area_status,
+      ra.district_id,
       d.district_name,
       p.province_name,
       COALESCE(ai.image_url, '/images/placeholder.jpg') AS main_image
-    FROM Rental_Area ra
-    INNER JOIN District d ON d.district_id = ra.district_id
-    INNER JOIN Province p ON p.province_id = d.province_id
+    FROM rental_area ra
+    INNER JOIN district d ON d.district_id = ra.district_id
+    INNER JOIN province p ON p.province_id = d.province_id
     LEFT JOIN (
       SELECT area_id, MIN(image_id) AS min_img
-      FROM Area_Image
+      FROM area_image
       GROUP BY area_id
     ) aim ON aim.area_id = ra.area_id
-    LEFT JOIN Area_Image ai ON ai.area_id = ra.area_id AND ai.image_id = aim.min_img
+    LEFT JOIN area_image ai ON ai.area_id = ra.area_id AND ai.image_id = aim.min_img
     ORDER BY ra.area_id DESC
     LIMIT :offset, :limit
   ";
@@ -109,8 +110,8 @@ try {
 $provinces = [];
 $districts = [];
 try {
-  $provinces = Database::fetchAll('SELECT province_id, province_name FROM Province ORDER BY province_name ASC');
-  $districts = Database::fetchAll('SELECT district_id, district_name FROM District ORDER BY district_name ASC');
+  $provinces = Database::fetchAll('SELECT province_id, province_name FROM province ORDER BY province_name ASC');
+  $districts = Database::fetchAll('SELECT district_id, district_name, province_id FROM district ORDER BY district_name ASC');
 } catch (Throwable $e) {
   app_log('home_province_district_load_error', ['message' => $e->getMessage()]);
 }
@@ -123,19 +124,19 @@ try {
       <div class="filter-group">
         <label for="province">จังหวัด</label>
         <select id="province" name="province">
-          <option value="">ทั้งหมด</option>
+          <option value="">เลือกจังหวัด</option>
           <?php foreach ($provinces as $prov): ?>
-            <option value="<?= e($prov['province_name'] ?? ''); ?>"><?= e($prov['province_name'] ?? ''); ?></option>
+            <option value="<?= e($prov['province_id'] ?? ''); ?>" data-name="<?= e($prov['province_name'] ?? ''); ?>"><?= e($prov['province_name'] ?? ''); ?></option>
           <?php endforeach; ?>
         </select>
       </div>
 
       <div class="filter-group">
         <label for="district">อำเภอ</label>
-        <select id="district" name="district">
-          <option value="">ทั้งหมด</option>
+        <select id="district" name="district" disabled>
+          <option value="">เลือกจังหวัดก่อน</option>
           <?php foreach ($districts as $dist): ?>
-            <option value="<?= e($dist['district_name'] ?? ''); ?>"><?= e($dist['district_name'] ?? ''); ?></option>
+            <option value="<?= e($dist['district_id'] ?? ''); ?>" data-province-id="<?= e($dist['province_id'] ?? ''); ?>"><?= e($dist['district_name'] ?? ''); ?></option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -211,6 +212,7 @@ try {
           style="text-decoration:none;color:inherit;"
           data-province="<?= e($province); ?>"
           data-district="<?= e($district); ?>"
+          data-district-id="<?= isset($item['district_id']) ? (int)$item['district_id'] : 0; ?>"
           data-price="<?= (int)$priceRaw; ?>"
           data-deposit="<?= (int)$depositRaw; ?>"
           data-date="<?= e($dataDate); ?>">

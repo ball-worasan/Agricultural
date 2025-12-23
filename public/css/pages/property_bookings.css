@@ -448,6 +448,7 @@
   padding: var(--spacing-sm);
   box-shadow: var(--shadow-lg);
   cursor: default;
+  color: var(--text-primary);
 }
 
 .modal-content img {

@@ -162,7 +162,6 @@ if ($method === 'POST' && isset($_POST['create_contract'])) {
 
       $finfo = finfo_open(FILEINFO_MIME_TYPE);
       $mimeType = finfo_file($finfo, $file['tmp_name']);
-      finfo_close($finfo);
 
       if (!in_array($mimeType, $allowedTypes, true)) {
         json_response(['success' => false, 'message' => 'รองรับเฉพาะไฟล์ PDF'], 400);
@@ -272,24 +271,17 @@ if ($bookingId <= 0) {
 $booking = Database::fetchOne(
   '
     SELECT 
-        b.*,
-        p.title AS property_title,
-        p.location,
-        p.province,
-        p.price,
-        p.area_rai,
-        p.area_ngan,
-        p.area_sqwa,
-        p.category,
-        p.owner_id,
-        u.firstname AS owner_firstname,
-        u.lastname AS owner_lastname,
-        u.email AS owner_email,
-        u.phone AS owner_phone
-    FROM bookings b
-    JOIN properties p ON b.property_id = p.id
-    JOIN users u ON p.owner_id = u.id
-    WHERE b.id = ? AND b.user_id = ? AND b.booking_status = "approved"
+        bd.*,
+        ra.area_name,
+        ra.area_size,
+        ra.price_per_year,
+        ra.user_id AS owner_id,
+        o.full_name AS owner_name,
+        o.phone AS owner_phone
+    FROM booking_deposit bd
+    JOIN rental_area ra ON bd.area_id = ra.area_id
+    JOIN users o ON ra.user_id = o.user_id
+    WHERE bd.booking_id = ? AND bd.user_id = ? AND bd.deposit_status = "approved"
     ',
   [$bookingId, $userId]
 );
@@ -301,43 +293,27 @@ if (!$booking) {
 
 // ตรวจสอบว่ามีสัญญาอยู่แล้วหรือไม่
 $existingContract = Database::fetchOne(
-  'SELECT id, booking_id, contract_number, status FROM contracts WHERE booking_id = ?',
+  'SELECT contract_id FROM contract WHERE booking_id = ?',
   [$bookingId]
 );
 
 if ($existingContract) {
-  // ถ้ามีสัญญาแล้ว redirect ไปหน้าประวัติ (สามารถดูสัญญาได้จาก history)
+  // ถ้ามีสัญญาแล้ว redirect ไปหน้าประวัติ
   flash('info', 'สัญญานี้ถูกสร้างไว้แล้ว คุณสามารถดูได้จากประวัติการเช่า');
   redirect('?page=history');
 }
 
-$propertyTitle = $booking['property_title'] ?? '';
-$location = $booking['location'] ?? '';
-$province = $booking['province'] ?? '';
-$annualPrice = (float) ($booking['price'] ?? 0);
+$areaName = $booking['area_name'] ?? '';
+$areaSize = (float) ($booking['area_size'] ?? 0);
+$annualPrice = (float) ($booking['price_per_year'] ?? 0);
 $depositAmount = (float) ($booking['deposit_amount'] ?? 0);
-$totalAmount = (float) ($booking['total_amount'] ?? 0);
 
-$ownerName = trim(($booking['owner_firstname'] ?? '') . ' ' . ($booking['owner_lastname'] ?? ''));
-$ownerEmail = $booking['owner_email'] ?? '';
+$ownerName = $booking['owner_name'] ?? '';
 $ownerPhone = $booking['owner_phone'] ?? '';
 
 // ข้อมูลผู้เช่า
-$tenantName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
-$tenantEmail = $user['email'] ?? '';
+$tenantName = $user['full_name'] ?? '';
 $tenantPhone = $user['phone'] ?? '';
-
-// ข้อมูลพื้นที่
-$areaText = '';
-if (!empty($booking['area_rai']) || !empty($booking['area_ngan']) || !empty($booking['area_sqwa'])) {
-  $parts = [];
-  if (!empty($booking['area_rai'])) $parts[] = $booking['area_rai'] . ' ไร่';
-  if (!empty($booking['area_ngan'])) $parts[] = $booking['area_ngan'] . ' งาน';
-  if (!empty($booking['area_sqwa'])) $parts[] = $booking['area_sqwa'] . ' ตารางวา';
-  $areaText = implode(' ', $parts);
-}
-
-$category = $booking['category'] ?? '';
 
 // เงื่อนไขสัญญามาตรฐาน
 $defaultTerms = "1. ผู้เช่าตกลงเช่าพื้นที่เกษตรเพื่อทำการเกษตรเท่านั้น

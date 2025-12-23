@@ -105,17 +105,10 @@ if (!class_exists('RegistrationRateLimiter')) {
 if (!class_exists('SignupUserRepository')) {
   class SignupUserRepository
   {
-    public function findDuplicate(string $username, ?string $phone): ?array
+    public function findDuplicate(string $username, string $phone): ?array
     {
-      $sql    = 'SELECT username, phone FROM users WHERE username = ?';
-      $params = [$username];
-
-      if ($phone !== null && $phone !== '') {
-        $sql .= ' OR phone = ?';
-        $params[] = $phone;
-      }
-
-      $sql .= ' LIMIT 1';
+      $sql    = 'SELECT username, phone FROM users WHERE username = ? OR phone = ?';
+      $params = [$username, $phone];
 
       $row = Database::fetchOne($sql, $params);
       return $row ?: null;
@@ -125,18 +118,16 @@ if (!class_exists('SignupUserRepository')) {
     {
       return Database::execute(
         'INSERT INTO users 
-                    (username, email, password, firstname, lastname, address, phone, role, created_at) 
+                    (username, password, full_name, address, phone, role) 
                  VALUES 
-                    (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+                    (?, ?, ?, ?, ?, ?)',
         [
           $data['username'],
-          $data['email'],
           $data['password_hash'],
-          $data['firstname'],
-          $data['lastname'],
+          $data['full_name'],
           $data['address'],
-          ($data['phone'] !== '') ? $data['phone'] : null,
-          $data['role'] ?? 'member',
+          $data['phone'],
+          $data['role'] ?? 2,
         ]
       ) > 0;
     }
@@ -160,8 +151,9 @@ if (!class_exists('RegistrationService')) {
      */
     public function register(array $input): array
     {
-      $firstname = isset($input['firstname']) ? trim((string) $input['firstname']) : '';
-      $lastname  = isset($input['lastname']) ? trim((string) $input['lastname']) : '';
+      $firstName = isset($input['firstname']) ? trim((string) $input['firstname']) : '';
+      $lastName  = isset($input['lastname']) ? trim((string) $input['lastname']) : '';
+      $fullName  = trim($firstName . ' ' . $lastName);
       $address   = isset($input['address']) ? trim((string) $input['address']) : '';
 
       $phoneRaw = isset($input['phone']) ? (string) $input['phone'] : '';
@@ -173,7 +165,7 @@ if (!class_exists('RegistrationService')) {
       $passwordConfirm = isset($input['password_confirm']) ? (string) $input['password_confirm'] : '';
 
       // required fields
-      if ($firstname === '' || $lastname === '' || $username === '' || $password === '') {
+      if ($firstName === '' || $lastName === '' || $username === '' || $password === '' || $address === '' || $phone === '') {
         return ['success' => false, 'message' => 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน'];
       }
 
@@ -181,7 +173,7 @@ if (!class_exists('RegistrationService')) {
         return ['success' => false, 'message' => 'ชื่อผู้ใช้ต้องมีความยาว 3-20 ตัวอักษร และประกอบด้วย a-z, A-Z, 0-9, _ เท่านั้น'];
       }
 
-      if ($phone !== '' && !preg_match('/^[0-9]{9,10}$/', $phone)) {
+      if (!preg_match('/^[0-9]{9,10}$/', $phone)) {
         return ['success' => false, 'message' => 'กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง (9-10 หลัก)'];
       }
 
@@ -195,8 +187,7 @@ if (!class_exists('RegistrationService')) {
 
       // duplicate check
       try {
-        $dupPhone  = ($phone !== '') ? $phone : null;
-        $duplicate = $this->users->findDuplicate($username, $dupPhone);
+        $duplicate = $this->users->findDuplicate($username, $phone);
       } catch (Throwable $e) {
         app_log('signup_duplicate_check_error', ['error' => $e->getMessage()]);
         return ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการตรวจสอบข้อมูลซ้ำ กรุณาลองใหม่อีกครั้ง'];
@@ -206,13 +197,13 @@ if (!class_exists('RegistrationService')) {
         $fields = [];
 
         if (!empty($duplicate['username']) && $duplicate['username'] === $username) $fields[] = 'ชื่อผู้ใช้';
-        if ($phone !== '' && !empty($duplicate['phone']) && preg_replace('/\D/', '', (string)$duplicate['phone']) === $phone) {
+        if (!empty($duplicate['phone']) && preg_replace('/\D/', '', (string)$duplicate['phone']) === $phone) {
           $fields[] = 'เบอร์โทรศัพท์';
         }
 
         return [
           'success' => false,
-          'message' => !empty($fields) ? implode(' หรือ ', $fields) . 'นี้ถูกใช้งานแล้ว' : 'ข้อมูลนี้ถูกใช้งานแล้ว',
+          'message' => !empty($fields) ? implode(' หรือ ', $fields) . ' นี้ถูกใช้งานแล้ว' : 'ข้อมูลนี้ถูกใช้งานแล้ว',
         ];
       }
 
@@ -222,13 +213,12 @@ if (!class_exists('RegistrationService')) {
       }
 
       $data = [
-        'firstname'     => $firstname,
-        'lastname'      => $lastname,
+        'full_name'     => $fullName,
         'address'       => $address,
         'phone'         => $phone,
         'username'      => $username,
         'password_hash' => $hashedPassword,
-        'role'          => 'member',
+        'role'          => ROLE_MEMBER,
       ];
 
       try {
@@ -321,27 +311,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
           <div class="form-group">
             <label for="lastname">นามสกุล</label>
             <input type="text" id="lastname" name="lastname" placeholder="กรอกนามสกุล" required
-              value="<?= old('lastname'); ?>" autocomplete="family-name">
+              value="<?= e(old('lastname')); ?>" autocomplete="family-name">
           </div>
         </div>
 
         <div class="form-group">
-          <label for="address">ที่อยู่ (เลือกกรอก)</label>
-          <input type="text" id="address" name="address" placeholder="กรอกที่อยู่ (ถ้ามี)"
-            value="<?= old('address'); ?>" autocomplete="street-address">
+          <label for="address">ที่อยู่</label>
+          <input type="text" id="address" name="address" placeholder="กรอกที่อยู่" required
+            value="<?= e(old('address')); ?>" autocomplete="street-address">
         </div>
 
         <div class="form-group">
-          <label for="phone">เบอร์โทรศัพท์ (เลือกกรอก)</label>
-          <input type="tel" id="phone" name="phone" placeholder="กรอกเบอร์โทรศัพท์"
-            value="<?= old('phone'); ?>" autocomplete="tel"
+          <label for="phone">เบอร์โทรศัพท์</label>
+          <input type="tel" id="phone" name="phone" placeholder="กรอกเบอร์โทรศัพท์" required
+            value="<?= e(old('phone')); ?>" autocomplete="tel"
             pattern="[0-9]{9,10}" title="กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก">
         </div>
 
         <div class="form-group">
           <label for="username">ชื่อผู้ใช้</label>
           <input type="text" id="username" name="username" placeholder="กรอกชื่อผู้ใช้" required
-            value="<?= old('username'); ?>" autocomplete="username"
+            value="<?= e(old('username')); ?>" autocomplete="username"
             pattern="[a-zA-Z0-9_]{3,20}" minlength="3" maxlength="20"
             title="ชื่อผู้ใช้ต้องมีความยาว 3-20 ตัวอักษร (a-z, A-Z, 0-9, _ เท่านั้น)">
         </div>

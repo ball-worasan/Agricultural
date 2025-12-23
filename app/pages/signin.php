@@ -141,7 +141,7 @@ if (!class_exists('UserRepository')) {
     public function findByUsername(string $username): ?array
     {
       $user = Database::fetchOne(
-        'SELECT id, username, firstname, lastname, role, password
+        'SELECT user_id AS id, username, full_name, role, password
                  FROM users
                  WHERE username = ?
                  LIMIT 1',
@@ -153,17 +153,8 @@ if (!class_exists('UserRepository')) {
 
     public function updateLastLogin(int $userId): void
     {
-      try {
-        Database::execute(
-          'UPDATE users SET last_login_at = NOW() WHERE id = ?',
-          [$userId]
-        );
-      } catch (Throwable $e) {
-        app_log('update_last_login_failed', [
-          'user_id' => $userId,
-          'error'   => $e->getMessage(),
-        ]);
-      }
+      // Schema ไม่มี last_login_at column ข้ามไป
+      // ถ้าต้องการเพิ่มได้ใน migration ต่อไป
     }
   }
 }
@@ -299,9 +290,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   $_SESSION['user'] = [
     'id'        => (int)$user['id'],
     'username'  => (string)($user['username'] ?? ''),
-    'firstname' => (string)($user['firstname'] ?? ''),
-    'lastname'  => (string)($user['lastname'] ?? ''),
-    'role'      => (string)($user['role'] ?? 'user'),
+    'full_name' => (string)($user['full_name'] ?? ''),
+    'role'      => (int)($user['role'] ?? ROLE_MEMBER),
   ];
 
   $userRepo->updateLastLogin((int) $user['id']);

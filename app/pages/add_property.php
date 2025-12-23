@@ -5,8 +5,11 @@ declare(strict_types=1);
 // ----------------------------
 // โหลดไฟล์แบบกันพลาด
 // ----------------------------
+if (!defined('BASE_PATH')) {
+  define('BASE_PATH', dirname(__DIR__, 2)); // /sirinat
+}
 if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
+  define('APP_PATH', BASE_PATH . '/app');
 }
 
 $databaseFile = APP_PATH . '/config/Database.php';
@@ -58,10 +61,24 @@ if ($user === null) {
   redirect('?page=signin');
 }
 
-$userId = (int)($user['id'] ?? 0);
+$userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('add_property_invalid_user', ['session_user' => $user]);
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
+  redirect('?page=signin');
+}
+
+// ตรวจสอบว่า user_id นี้มีอยู่จริงในฐานข้อมูลหรือไม่
+try {
+  $userCheck = Database::fetchOne('SELECT user_id FROM users WHERE user_id = ? LIMIT 1', [$userId]);
+  if (!$userCheck) {
+    app_log('add_property_user_not_found', ['user_id' => $userId, 'session_user' => $user]);
+    flash('error', 'ข้อมูลผู้ใช้ไม่พบในระบบ กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
+    redirect('?page=signin');
+  }
+} catch (Throwable $e) {
+  app_log('add_property_user_check_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
+  flash('error', 'ไม่สามารถตรวจสอบข้อมูลผู้ใช้ได้');
   redirect('?page=signin');
 }
 
@@ -71,112 +88,34 @@ if ($userId <= 0) {
 $errors = [];
 
 // ----------------------------
-// Thai Provinces List
+// Provinces & Districts from DB
 // ----------------------------
-$thaiProvinces = [
-  'กระบี่',
-  'กรุงเทพมหานคร',
-  'กาญจนบุรี',
-  'กาฬสินธุ์',
-  'กำแพงเพชร',
-  'ขอนแก่น',
-  'จันทบุรี',
-  'ฉะเชิงเทรา',
-  'ชลบุรี',
-  'ชัยนาท',
-  'ชัยภูมิ',
-  'ชุมพร',
-  'เชียงราย',
-  'เชียงใหม่',
-  'ตรัง',
-  'ตราด',
-  'ตาก',
-  'นครนายก',
-  'นครปฐม',
-  'นครพนม',
-  'นครราชสีมา',
-  'นครศรีธรรมราช',
-  'นครสวรรค์',
-  'นนทบุรี',
-  'นราธิวาส',
-  'น่าน',
-  'บึงกาฬ',
-  'บุรีรัมย์',
-  'ปทุมธานี',
-  'ประจวบคีรีขันธ์',
-  'ปราจีนบุรี',
-  'ปัตตานี',
-  'พระนครศรีอยุธยา',
-  'พังงา',
-  'พัทลุง',
-  'พิจิตร',
-  'พิษณุโลก',
-  'เพชรบุรี',
-  'เพชรบูรณ์',
-  'แพร่',
-  'พะเยา',
-  'ภูเก็ต',
-  'มหาสารคาม',
-  'มุกดาหาร',
-  'แม่ฮ่องสอน',
-  'ยโสธร',
-  'ยะลา',
-  'ร้อยเอ็ด',
-  'ระนอง',
-  'ระยอง',
-  'ราชบุรี',
-  'ลพบุรี',
-  'ลำปาง',
-  'ลำพูน',
-  'เลย',
-  'ศรีสะเกษ',
-  'สกลนคร',
-  'สงขลา',
-  'สตูล',
-  'สมุทรปราการ',
-  'สมุทรสงคราม',
-  'สมุทรสาคร',
-  'สระแก้ว',
-  'สระบุรี',
-  'สิงห์บุรี',
-  'สุโขทัย',
-  'สุพรรณบุรี',
-  'สุราษฎร์ธานี',
-  'สุรินทร์',
-  'หนองคาย',
-  'หนองบัวลำพู',
-  'อ่างทอง',
-  'อุดรธานี',
-  'อุทัยธานี',
-  'อุตรดิตถ์',
-  'อุบลราชธานี',
-  'อำนาจเจริญ',
-];
-
-$categories = ['ไร่นา', 'สวนผลไม้', 'แปลงผัก', 'เลี้ยงสัตว์', 'สวนผสม', 'อื่นๆ'];
+$provinces = [];
+$districts = [];
+try {
+  $provinces = Database::fetchAll('SELECT province_id, province_name FROM province ORDER BY province_name ASC');
+  $districts = Database::fetchAll('SELECT district_id, district_name, province_id FROM district ORDER BY district_name ASC');
+} catch (Throwable $e) {
+  app_log('add_property_load_province_district_error', ['error' => $e->getMessage()]);
+  $errors[] = 'ไม่สามารถโหลดข้อมูลจังหวัด/อำเภอได้: ' . $e->getMessage();
+}
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   csrf_require(); // ✅ CSRF ทุก POST
 
   $title        = trim((string)($_POST['title'] ?? ''));
-  $category     = trim((string)($_POST['category'] ?? ''));
-  $location     = trim((string)($_POST['location'] ?? ''));
-  $province     = trim((string)($_POST['province'] ?? ''));
-  $area         = trim((string)($_POST['area'] ?? ''));
+  $provinceId   = (int)($_POST['province'] ?? 0);
+  $districtId   = (int)($_POST['district'] ?? 0);
   $area_rai     = max(0, (int)($_POST['area_rai'] ?? 0));
   $area_ngan    = max(0, (int)($_POST['area_ngan'] ?? 0));
   $area_sqwa    = max(0, (int)($_POST['area_sqwa'] ?? 0));
   $priceRaw     = trim((string)($_POST['price'] ?? ''));
-  $description  = trim((string)($_POST['description'] ?? ''));
-  $soil_type    = trim((string)($_POST['soil_type'] ?? ''));
-  $irrigation   = trim((string)($_POST['irrigation'] ?? ''));
-  $has_water    = isset($_POST['has_water']) ? 1 : 0;
-  $has_electric = isset($_POST['has_electric']) ? 1 : 0;
+  // กำหนดมัดจำคงที่ 10% (ไม่รับจากฟอร์ม)
+  $depositPercent = 10.0;
 
-  if ($title === '')      $errors[] = 'กรุณากรอกชื่อพื้นที่';
-  if ($location === '')   $errors[] = 'กรุณากรอกที่ตั้ง';
-  if ($province === '')   $errors[] = 'กรุณาเลือกจังหวัด';
-  if ($description === '') $errors[] = 'กรุณากรอกรายละเอียดเพิ่มเติมของพื้นที่';
+  if ($title === '')            $errors[] = 'กรุณากรอกชื่อพื้นที่';
+  if ($provinceId <= 0)         $errors[] = 'กรุณาเลือกจังหวัด';
+  if ($districtId <= 0)         $errors[] = 'กรุณาเลือกอำเภอ';
 
   $price = 0.0;
   if ($priceRaw === '' || !is_numeric($priceRaw)) {
@@ -185,6 +124,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $price = (float)$priceRaw;
     if ($price < 0) $errors[] = 'ราคาต้องไม่ติดลบ';
   }
+
+  // ไม่ต้อง validate มัดจำ เนื่องจากกำหนดค่าคงที่ไว้แล้ว
+
+  // คำนวณขนาดพื้นที่เป็นหน่วย "ไร่" แบบทศนิยม
+  $area_size = (float)$area_rai + ($area_ngan / 4.0) + ($area_sqwa / 400.0);
 
   // upload
   $uploadedImages = [];
@@ -197,7 +141,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         ? rtrim((string) BASE_PATH, '/')
         : dirname(__DIR__, 3); // /app/pages -> /sirinat
 
-      $uploadDir = $projectRoot . '/storage/uploads/properties';
+      $uploadDir = $projectRoot . '/public/storage/uploads/areas';
 
       if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true)) {
         app_log('upload_mkdir_failed', [
@@ -246,26 +190,40 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
           }
 
           $random = bin2hex(random_bytes(8));
-          $newName = 'prop_' . $random . '_' . time() . '_' . $i . '.' . $ext;
+          $newName = 'area_' . $random . '_' . time() . '_' . $i . '.' . $ext;
           $dest = $uploadDir . '/' . $newName;
 
           // ใช้ ImageService เพื่อ resize และ optimize
-          $processed = ImageService::uploadAndProcess(
-            [
-              'tmp_name' => $tmp,
-              'name' => $name,
-              'size' => $size,
-            ],
-            $uploadDir,
-            $newName
-          );
+          try {
+            $processed = ImageService::uploadAndProcess(
+              [
+                'tmp_name' => $tmp,
+                'name' => $name,
+                'size' => $size,
+              ],
+              $uploadDir,
+              $newName
+            );
 
-          if ($processed) {
-            $uploadedImages[] = '/storage/uploads/properties/' . $newName;
-          } else {
-            // Fallback: อัปโหลดแบบเดิมถ้า ImageService ล้มเหลว
+            if ($processed && file_exists($processed)) {
+              // ImageService ส่งกลับ absolute path
+              $uploadedImages[] = '/storage/uploads/areas/' . $newName;
+            } else {
+              // Fallback: อัปโหลดแบบเดิมถ้า ImageService ล้มเหลว
+              if (move_uploaded_file($tmp, $dest)) {
+                $uploadedImages[] = '/storage/uploads/areas/' . $newName;
+              } else {
+                $errors[] = "ไม่สามารถอัปโหลดรูปภาพ {$name} ได้";
+              }
+            }
+          } catch (Throwable $e) {
+            app_log('image_service_error', [
+              'name' => $name,
+              'error' => $e->getMessage()
+            ]);
+            // Fallback: อัปโหลดแบบเดิม
             if (move_uploaded_file($tmp, $dest)) {
-              $uploadedImages[] = '/storage/uploads/properties/' . $newName;
+              $uploadedImages[] = '/public/storage/uploads/areas/' . $newName;
             } else {
               $errors[] = "ไม่สามารถอัปโหลดรูปภาพ {$name} ได้";
             }
@@ -277,66 +235,55 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
   if (empty($errors)) {
     try {
-      Database::transaction(function ($pdo) use (
-        $userId,
-        $title,
-        $category,
-        $location,
-        $province,
-        $area,
-        $area_rai,
-        $area_ngan,
-        $area_sqwa,
-        $price,
-        $description,
-        $soil_type,
-        $irrigation,
-        $has_water,
-        $has_electric,
-        $uploadedImages
-      ) {
-        $mainImage = $uploadedImages[0] ?? null;
+      $pdo = Database::connection();
+      $pdo->beginTransaction();
 
+      try {
+        // เพิ่มรายการพื้นที่เช่า ตามสคีมาใหม่
         Database::execute(
-          'INSERT INTO properties
-                        (owner_id,title,category,location,province,area,area_rai,area_ngan,area_sqwa,price,description,soil_type,irrigation,has_water,has_electric,main_image,status,created_at)
-                     VALUES
-                        (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, "available", NOW())',
+          'INSERT INTO rental_area (user_id, area_name, price_per_year, deposit_percent, area_size, district_id, area_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)',
           [
             $userId,
             $title,
-            $category,
-            $location,
-            $province,
-            $area,
-            $area_rai,
-            $area_ngan,
-            $area_sqwa,
             $price,
-            $description,
-            $soil_type,
-            $irrigation,
-            $has_water,
-            $has_electric,
-            $mainImage
+            $depositPercent,
+            $area_size,
+            $districtId,
+            'available'
           ]
         );
 
-        $propertyId = (int)$pdo->lastInsertId();
+        $areaId = (int)$pdo->lastInsertId();
 
-        foreach ($uploadedImages as $idx => $url) {
+        if ($areaId <= 0) {
+          throw new RuntimeException('ไม่สามารถดึง area_id หลังการแทรกข้อมูลได้');
+        }
+
+        foreach ($uploadedImages as $url) {
           Database::execute(
-            'INSERT INTO property_images (property_id,image_url,display_order) VALUES (?,?,?)',
-            [$propertyId, $url, $idx + 1]
+            'INSERT INTO area_image (image_url, area_id) VALUES (?, ?)',
+            [$url, $areaId]
           );
         }
-      });
 
-      flash('success', 'เพิ่มรายการพื้นที่เรียบร้อยแล้ว');
-      redirect('?page=my_properties');
+        $pdo->commit();
+
+        flash('success', 'เพิ่มรายการพื้นที่เรียบร้อยแล้ว');
+        redirect('?page=my_properties');
+      } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+      }
     } catch (Throwable $e) {
-      app_log('add_property_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
-      $errors[] = 'เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง';
+      app_log('add_property_error', [
+        'user_id' => $userId,
+        'title' => $title,
+        'price' => $price,
+        'error' => $e->getMessage(),
+        'trace' => $e->getTraceAsString()
+      ]);
+      $errors[] = 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' . $e->getMessage();
     }
   }
 }
@@ -371,29 +318,29 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="title">ชื่อพื้นที่ <span class="required">*</span></label>
-          <input id="title" name="title" type="text" required value="<?= e($_POST['title'] ?? '') ?>">
+          <input id="title" name="title" type="text" required placeholder="เช่น ไร่ข้าว 5 ไร่ ใกล้คลองส่งน้ำ" value="<?= e($_POST['title'] ?? '') ?>">
         </div>
       </div>
 
       <div class="form-row">
-        <div class="form-group">
-          <label for="category">ประเภทพื้นที่</label>
-          <select id="category" name="category">
-            <option value="">-- เลือกประเภท --</option>
-            <?php $oldCat = $_POST['category'] ?? ''; ?>
-            <?php foreach ($categories as $cat): ?>
-              <option value="<?= e($cat) ?>" <?= $oldCat === $cat ? 'selected' : ''; ?>><?= e($cat) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </div>
-
         <div class="form-group">
           <label for="province">จังหวัด <span class="required">*</span></label>
           <select id="province" name="province" required>
             <option value="">-- เลือกจังหวัด --</option>
-            <?php $oldProv = $_POST['province'] ?? ''; ?>
-            <?php foreach ($thaiProvinces as $prov): ?>
-              <option value="<?= e($prov) ?>" <?= $oldProv === $prov ? 'selected' : ''; ?>><?= e($prov) ?></option>
+            <?php $oldProv = (int)($_POST['province'] ?? 0); ?>
+            <?php foreach ($provinces as $prov): ?>
+              <option value="<?= e((string)$prov['province_id']) ?>" data-name="<?= e($prov['province_name']) ?>" <?= $oldProv === (int)$prov['province_id'] ? 'selected' : ''; ?>><?= e($prov['province_name']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="district">อำเภอ <span class="required">*</span></label>
+          <select id="district" name="district" required disabled>
+            <option value="">เลือกจังหวัดก่อน</option>
+            <?php $oldDist = (int)($_POST['district'] ?? 0); ?>
+            <?php foreach ($districts as $dist): ?>
+              <option value="<?= e((string)$dist['district_id']) ?>" data-province-id="<?= e((string)$dist['province_id']) ?>" <?= $oldDist === (int)$dist['district_id'] ? 'selected' : ''; ?>><?= e($dist['district_name']) ?></option>
             <?php endforeach; ?>
           </select>
         </div>
@@ -401,8 +348,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
       <div class="form-row">
         <div class="form-group">
-          <label for="location">ที่ตั้ง/ทำเล <span class="required">*</span></label>
-          <input id="location" name="location" type="text" required value="<?= e($_POST['location'] ?? '') ?>">
+          <label for="deposit_percent">เปอร์เซ็นต์มัดจำ (%) <span class="required">*</span></label>
+          <input id="deposit_percent" name="deposit_percent" type="number" value="10" readonly disabled>
+          <small class="text-note">กำหนดคงที่ 10% ไม่สามารถแก้ไขได้</small>
         </div>
       </div>
     </div>
@@ -413,64 +361,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="area_rai">ไร่</label>
-          <input id="area_rai" name="area_rai" type="number" min="0" value="<?= e((string)($_POST['area_rai'] ?? 0)) ?>">
+          <input id="area_rai" name="area_rai" type="number" min="0" placeholder="เช่น 5" value="<?= e((string)($_POST['area_rai'] ?? 0)) ?>">
         </div>
         <div class="form-group">
           <label for="area_ngan">งาน</label>
-          <input id="area_ngan" name="area_ngan" type="number" min="0" max="3" value="<?= e((string)($_POST['area_ngan'] ?? 0)) ?>">
+          <input id="area_ngan" name="area_ngan" type="number" min="0" max="99" placeholder="เช่น 2" value="<?= e((string)($_POST['area_ngan'] ?? 0)) ?>">
         </div>
         <div class="form-group">
           <label for="area_sqwa">ตารางวา</label>
-          <input id="area_sqwa" name="area_sqwa" type="number" min="0" max="99" value="<?= e((string)($_POST['area_sqwa'] ?? 0)) ?>">
+          <input id="area_sqwa" name="area_sqwa" type="number" min="0" max="99" placeholder="เช่น 50" value="<?= e((string)($_POST['area_sqwa'] ?? 0)) ?>">
         </div>
       </div>
 
-      <div class="form-row">
-        <div class="form-group">
-          <label for="area">หรือระบุเป็น</label>
-          <input id="area" name="area" type="text" value="<?= e($_POST['area'] ?? '') ?>">
-        </div>
-      </div>
     </div>
-
-    <div class="form-section">
-      <h2 class="section-title">รายละเอียดพื้นที่</h2>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label for="soil_type">ประเภทดิน</label>
-          <input id="soil_type" name="soil_type" type="text" value="<?= e($_POST['soil_type'] ?? '') ?>">
-        </div>
-        <div class="form-group">
-          <label for="irrigation">ระบบชลประทาน</label>
-          <input id="irrigation" name="irrigation" type="text" value="<?= e($_POST['irrigation'] ?? '') ?>">
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group checkbox-group">
-          <label><input type="checkbox" name="has_water" value="1" <?= isset($_POST['has_water']) ? 'checked' : ''; ?>> มีน้ำพร้อมใช้</label>
-          <label><input type="checkbox" name="has_electric" value="1" <?= isset($_POST['has_electric']) ? 'checked' : ''; ?>> มีไฟฟ้าพร้อมใช้</label>
-        </div>
-      </div>
-    </div>
-
     <div class="form-section">
       <h2 class="section-title">ราคาและรายละเอียด</h2>
 
       <div class="form-row">
         <div class="form-group">
           <label for="price">ราคาเช่าต่อปี (บาท) <span class="required">*</span></label>
-          <input id="price" name="price" type="number" min="0" step="0.01" required value="<?= e($_POST['price'] ?? '') ?>">
+          <input id="price" name="price" type="number" min="0" step="0.01" required placeholder="เช่น 15000" value="<?= e($_POST['price'] ?? '') ?>">
         </div>
       </div>
 
-      <div class="form-row">
-        <div class="form-group">
-          <label for="description">รายละเอียดเพิ่มเติม <span class="required">*</span></label>
-          <textarea id="description" name="description" rows="6" required><?= e($_POST['description'] ?? '') ?></textarea>
-        </div>
-      </div>
+      <!-- ไม่มีช่องรายละเอียดในสคีมาใหม่ -->
     </div>
 
     <div class="form-section">
@@ -493,71 +407,3 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     </div>
   </form>
 </div>
-
-<script>
-  (function() {
-    'use strict';
-    let selectedFiles = [];
-
-    window.previewImages = function(event) {
-      const files = Array.prototype.slice.call(event.target.files || []);
-      const preview = document.getElementById('imagePreview');
-      if (!preview) return;
-
-      if (selectedFiles.length + files.length > 10) {
-        alert('สามารถอัปโหลดรูปภาพได้สูงสุด 10 รูป');
-        return;
-      }
-
-      files.forEach(function(file) {
-        if (file.size > 5 * 1024 * 1024) {
-          alert('ไฟล์ ' + file.name + ' มีขนาดใหญ่เกิน 5MB');
-          return;
-        }
-        selectedFiles.push(file);
-      });
-
-      rebuildPreview();
-      syncInput();
-    };
-
-    window.removeImage = function(idx) {
-      if (idx < 0 || idx >= selectedFiles.length) return;
-      selectedFiles.splice(idx, 1);
-      rebuildPreview();
-      syncInput();
-    };
-
-    function rebuildPreview() {
-      const preview = document.getElementById('imagePreview');
-      if (!preview) return;
-      preview.innerHTML = '';
-
-      selectedFiles.forEach(function(file, idx) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          const div = document.createElement('div');
-          div.className = 'preview-item';
-          div.innerHTML =
-            '<img src="' + e.target.result + '" alt="Preview">' +
-            '<button type="button" class="remove-image" data-index="' + idx + '">×</button>';
-          preview.appendChild(div);
-
-          const btn = div.querySelector('.remove-image');
-          if (btn) btn.addEventListener('click', function() {
-            window.removeImage(parseInt(btn.getAttribute('data-index') || '0', 10));
-          });
-        };
-        reader.readAsDataURL(file);
-      });
-    }
-
-    function syncInput() {
-      const input = document.getElementById('images');
-      if (!input) return;
-      const dt = new DataTransfer();
-      selectedFiles.forEach(f => dt.items.add(f));
-      input.files = dt.files;
-    }
-  })();
-</script>

@@ -33,8 +33,17 @@ if (!is_file($helpersFile)) {
   return;
 }
 
+$notificationServiceFile = APP_PATH . '/includes/NotificationService.php';
+if (!is_file($notificationServiceFile)) {
+  app_log('payment_notification_service_missing', ['file' => $notificationServiceFile]);
+  // Continue without notification service
+}
+
 require_once $databaseFile;
 require_once $helpersFile;
+if (is_file($notificationServiceFile)) {
+  require_once $notificationServiceFile;
+}
 
 // ----------------------------
 // เริ่มเซสชัน
@@ -182,7 +191,7 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
       } else {
         app_log('slip_upload_failed', [
           'user_id'     => $userId,
-          'area_id'     => $areaId,
+          'property_id' => $propertyId,
           'upload_path' => $uploadPath,
         ]);
         json_response(['success' => false, 'message' => 'อัปโหลดสลิปไม่สำเร็จ กรุณาลองใหม่'], 500);
@@ -236,7 +245,7 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
         json_response(['success' => false, 'message' => 'พื้นที่ไม่อยู่ในสถานะที่จองได้'], 400);
       }
 
-      // อัปเดต booking -> approved
+      // อัปเดต booking -> approved + slip
       Database::execute(
         '
                 UPDATE booking_deposit
@@ -257,7 +266,7 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
 
       app_log('payment_update_success', [
         'user_id'      => $userId,
-        'area_id'      => $areaId,
+        'area_id'  => $areaId,
         'booking_id'   => (int) $booking['booking_id'],
         'booking_date' => $bookingDate,
       ]);
@@ -270,7 +279,7 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
   } catch (Throwable $e) {
     app_log('payment_update_error', [
       'user_id'      => $userId,
-      'area_id'      => $areaId ?? null,
+      'area_id'  => $areaId ?? null,
       'booking_date' => $bookingDate ?? null,
       'error'        => $e->getMessage(),
     ]);
@@ -377,68 +386,89 @@ $deposit        = number_format($depositRaw);
 
 // สร้าง booking แบบ atomic + กันซ้ำ (ใช้ transaction + lock)
 try {
-  Database::transaction(function () use ($userId, $areaId, $bookingDate, $depositRaw) {
-    // lock rental_area กัน race
-    $area = Database::fetchOne(
-      'SELECT area_id, area_status, user_id FROM rental_area WHERE area_id = ? LIMIT 1 FOR UPDATE',
-      [$areaId]
+  Database::transaction(function () use ($userId, $propertyId, $bookingDate, $depositRaw, $annualPriceRaw) {
+    // lock property กัน race
+    $prop = Database::fetchOne(
+      'SELECT id, status, owner_id FROM properties WHERE id = ? LIMIT 1 FOR UPDATE',
+      [$propertyId]
     );
 
-    if (!$area) {
-      throw new RuntimeException('Area not found');
+    if (!$prop) {
+      // ใช้ redirect ไม่ได้ใน transaction ง่าย ๆ -> โยน exception ให้ catch ข้างล่างจัด
+      throw new RuntimeException('Property not found');
     }
 
-    if ((int) ($area['user_id'] ?? 0) === $userId) {
-      throw new RuntimeException('Owner cannot book own area');
+    if ((int) ($prop['owner_id'] ?? 0) === $userId) {
+      throw new RuntimeException('Owner cannot book own property');
     }
 
     $allowedStatuses = ['available', 'booked'];
-    if (!in_array((string) ($area['area_status'] ?? ''), $allowedStatuses, true)) {
-      throw new RuntimeException('Area status invalid');
+    if (!in_array((string) ($prop['status'] ?? ''), $allowedStatuses, true)) {
+      throw new RuntimeException('Property status invalid');
     }
 
-    // มี booking อยู่แล้วไหม (ยังไม่ reject)
+    // มี booking อยู่แล้วไหม (ยังไม่ cancelled)
     $existingBooking = Database::fetchOne(
       '
-            SELECT booking_id, deposit_status
-            FROM booking_deposit
+            SELECT id, payment_status, booking_status
+            FROM bookings
             WHERE user_id = ?
-              AND area_id = ?
+              AND property_id = ?
               AND booking_date = ?
-              AND deposit_status != "rejected"
+              AND booking_status != "cancelled"
             ORDER BY created_at DESC
             LIMIT 1
             FOR UPDATE
             ',
-      [$userId, $areaId, $bookingDate]
+      [$userId, $propertyId, $bookingDate]
     );
 
     if (!$existingBooking) {
-      Database::execute(
+      $bookingId = Database::execute(
         '
-                INSERT INTO booking_deposit
-                    (area_id, user_id, booking_date, deposit_amount, deposit_status, created_at)
+                INSERT INTO bookings
+                    (user_id, property_id, booking_date, payment_status, booking_status, deposit_amount, total_amount, created_at)
                 VALUES
-                    (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (?, ?, ?, ?, ?, ?, ?, NOW())
                 ',
-        [$areaId, $userId, $bookingDate, $depositRaw, 'pending']
+        [$userId, $propertyId, $bookingDate, 'waiting', 'pending', $depositRaw, $annualPriceRaw]
       );
+
+      // แจ้งเตือนเจ้าของพื้นที่
+      $propertyTitle = Database::fetchOne(
+        'SELECT title FROM properties WHERE id = ?',
+        [$propertyId]
+      );
+
+      if ($propertyTitle && (int)($prop['owner_id'] ?? 0) > 0) {
+        NotificationService::notifyNewBooking(
+          (int)$prop['owner_id'],
+          (int)Database::lastInsertId(),
+          (string)$propertyTitle['title']
+        );
+      }
+    } else {
+      // ถ้าเขามาเปิดซ้ำแล้วเคยจ่ายแล้ว ก็ไม่ควร “เหมือนเริ่มใหม่”
+      $ps = (string) ($existingBooking['payment_status'] ?? '');
+      if ($ps === 'deposit_success') {
+        // ปล่อยให้ดูหน้าได้ แต่ปุ่มยืนยันจะโดน server block อยู่แล้ว (payment_status ไม่ใช่ waiting)
+      }
     }
 
     // ถ้ายัง available ให้ set booked ตั้งแต่เริ่ม (กันคนอื่นมาเปิด payment แข่ง)
-    if ((string) ($area['area_status'] ?? '') === 'available') {
+    if ((string) ($prop['status'] ?? '') === 'available') {
       Database::execute(
-        'UPDATE rental_area SET area_status = "booked", updated_at = CURRENT_TIMESTAMP WHERE area_id = ?',
-        [$areaId]
+        'UPDATE properties SET status = "booked", updated_at = NOW() WHERE id = ?',
+        [$propertyId]
       );
     }
   });
 } catch (Throwable $e) {
   app_log('payment_create_booking_error', [
-    'user_id'      => $userId,
-    'area_id'      => $areaId,
+    'user_id' => $userId,
+    'property_id' => $propertyId,
     'booking_date' => $bookingDate,
-    'error'        => $e->getMessage(),
+    'error' => $e->getMessage(),
   ]);
   redirect('?page=detail&id=' . (int) $areaId . '&error=booking');
 }
@@ -511,12 +541,129 @@ try {
   </div>
 </div>
 
-<!-- Payment Data for JavaScript -->
 <script>
-  window.PAYMENT_DATA = {
-    areaId: <?php echo (int) $areaId; ?>,
-    bookingDate: <?php echo json_encode($bookingDate, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
-    csrfToken: <?php echo json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>
-  };
+  const PROPERTY_ID = <?php echo (int) $propertyId; ?>;
+  const BOOKING_DATE = <?php echo json_encode($bookingDate, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  const CSRF_TOKEN = <?php echo json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+  async function confirmPayment() {
+    const slipInput = document.getElementById('slipFile');
+    if (!slipInput?.files || slipInput.files.length === 0) {
+      alert('กรุณาอัปโหลดสลิปการโอนก่อนยืนยัน');
+      return;
+    }
+
+    if (!confirm('ยืนยันว่าคุณได้ชำระเงินและอัปโหลดสลิปเรียบร้อยแล้ว?')) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('update_payment', '1');
+      formData.append('csrf', CSRF_TOKEN);
+      formData.append('property_id', String(PROPERTY_ID));
+      formData.append('booking_date', BOOKING_DATE);
+      formData.append('slip_file', slipInput.files[0]);
+
+      const res = await fetch(window.location.href, {
+        method: 'POST',
+        body: formData
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (e) {}
+
+      if (data?.success) {
+        alert('การจองเสร็จสมบูรณ์!\nระบบจะตรวจสอบสลิปและอนุมัติภายใน 5-10 นาที');
+        window.location.href = '?page=history';
+        return;
+      }
+
+      // มี message จาก server
+      if (data?.message) {
+        alert('ℹ️ ' + data.message);
+        return;
+      }
+
+      // fallback
+      if (!res.ok) {
+        alert('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง');
+        return;
+      }
+
+      alert('บันทึกแล้ว (ระบบจะตรวจสอบสลิป)');
+      window.location.href = '?page=history';
+    } catch (err) {
+      console.error('confirmPayment error:', err);
+      alert('เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่อีกครั้ง');
+    }
+  }
+
+  function cancelPayment() {
+    // ตอนนี้แค่พาไป history (ยังไม่ได้ “ยกเลิกจริง” ใน DB)
+    // ถ้าจะให้ยกเลิกจริง เดี๋ยวผมเพิ่ม endpoint cancel_booking ให้ได้
+    if (confirm('คุณต้องการยกเลิกการจองใช่หรือไม่?')) {
+      window.location.href = '?page=history';
+    }
+  }
+
+  // Timer (client-side only)
+  (function() {
+    let timeLeft = 60 * 60; // 60 นาที
+    const timeRemainingEl = document.getElementById('timeRemaining');
+    const timeRemainingTextEl = document.getElementById('timeRemainingText');
+    if (!timeRemainingEl) return;
+
+    const countdown = setInterval(() => {
+      timeLeft--;
+
+      const minutes = Math.floor(timeLeft / 60);
+      const seconds = timeLeft % 60;
+      const mmss = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+      timeRemainingEl.textContent = mmss;
+      if (timeRemainingTextEl) timeRemainingTextEl.textContent = `${minutes} นาที`;
+
+      if (timeLeft <= 0) {
+        clearInterval(countdown);
+        alert('หมดเวลาชำระเงิน การจองอาจถูกยกเลิกโดยอัตโนมัติ');
+        window.location.href = '?page=history';
+      } else if (timeLeft <= 60) {
+        timeRemainingEl.style.color = 'var(--status-sold-text)';
+      } else if (timeLeft <= 300) {
+        timeRemainingEl.style.color = 'var(--status-booked-text)';
+      }
+    }, 1000);
+  })();
+
+  // Slip preview
+  document.getElementById('slipFile')?.addEventListener('change', function() {
+    const preview = document.getElementById('slipPreview');
+    if (!preview) return;
+
+    preview.innerHTML = '';
+    if (this.files && this.files[0]) {
+      const file = this.files[0];
+
+      if (file.size > 5 * 1024 * 1024) {
+        alert('ไฟล์มีขนาดเกิน 5MB');
+        this.value = '';
+        preview.hidden = true;
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        img.style.maxWidth = '200px';
+        img.style.borderRadius = '6px';
+        preview.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+      preview.hidden = false;
+    } else {
+      preview.hidden = true;
+    }
+  });
 </script>
-<script src="/js/pages/payment.js"></script>

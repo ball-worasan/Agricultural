@@ -115,10 +115,10 @@ class PaymentService
       $endDate = (new DateTimeImmutable())->modify("+{$daysAhead} days")->format('Y-m-d');
 
       return Database::fetchAll(
-        'SELECT ps.*, u.email, u.firstname, u.lastname, p.title AS property_title
+        'SELECT ps.*, u.username, u.full_name, p.area_name
                  FROM payment_schedules ps
-                 JOIN users u ON ps.user_id = u.id
-                 JOIN properties p ON ps.property_id = p.id
+                 JOIN users u ON ps.user_id = u.user_id
+                 JOIN rental_area p ON ps.property_id = p.area_id
                  WHERE ps.payment_status = "pending"
                    AND ps.due_date <= ?
                    AND ps.due_date >= CURDATE()

@@ -81,16 +81,15 @@ $contract = null;
 try {
   $contract = Database::fetchOne(
   'SELECT c.*, 
-            u.firstname AS tenant_firstname, u.lastname AS tenant_lastname,
-            u.email AS tenant_email, u.phone AS tenant_phone,
-            o.firstname AS owner_firstname, o.lastname AS owner_lastname,
-            o.email AS owner_email, o.phone AS owner_phone,
-            p.title AS property_title, p.location, p.province
-     FROM contracts c
-     JOIN users u ON c.user_id = u.id
-     JOIN users o ON c.owner_id = o.id
-     JOIN properties p ON c.property_id = p.id
-     WHERE c.id = ? AND (c.user_id = ? OR c.owner_id = ?)',
+            u.full_name AS tenant_name, u.phone AS tenant_phone,
+            o.full_name AS owner_name, o.phone AS owner_phone,
+            ra.area_name, ra.area_size
+     FROM contract c
+     JOIN booking_deposit bd ON c.booking_id = bd.booking_id
+     JOIN users u ON bd.user_id = u.user_id
+     JOIN rental_area ra ON bd.area_id = ra.area_id
+     JOIN users o ON ra.user_id = o.user_id
+     WHERE c.contract_id = ? AND (bd.user_id = ? OR ra.user_id = ?)',
     [$contractId, $userId, $userId]
   );
 } catch (Throwable $e) {
@@ -172,14 +171,12 @@ $statusLabels = [
       <div class="parties-grid">
         <div class="party-card">
           <h3>ผู้ให้เช่า</h3>
-          <p><strong>ชื่อ:</strong> <?= e($contract['owner_firstname'] . ' ' . $contract['owner_lastname']); ?></p>
-          <p><strong>อีเมล:</strong> <?= e($contract['owner_email']); ?></p>
+          <p><strong>ชื่อ:</strong> <?= e($contract['owner_name']); ?></p>
           <p><strong>เบอร์โทร:</strong> <?= e($contract['owner_phone'] ?? '-'); ?></p>
         </div>
         <div class="party-card">
           <h3>ผู้เช่า</h3>
-          <p><strong>ชื่อ:</strong> <?= e($contract['tenant_firstname'] . ' ' . $contract['tenant_lastname']); ?></p>
-          <p><strong>อีเมล:</strong> <?= e($contract['tenant_email']); ?></p>
+          <p><strong>ชื่อ:</strong> <?= e($contract['tenant_name']); ?></p>
           <p><strong>เบอร์โทร:</strong> <?= e($contract['tenant_phone'] ?? '-'); ?></p>
         </div>
       </div>

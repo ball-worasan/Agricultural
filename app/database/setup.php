@@ -318,9 +318,9 @@ try {
     out('⚠️ ไม่สามารถอ่านรายการตารางได้: ' . $e->getMessage());
   }
 
-  // เติมข้อมูลจังหวัด/อำเภอ ครบทุกจังหวัด/อำเภอจากชุดข้อมูลสาธารณะ
+  // เติมข้อมูลจังหวัด/อำเภอจากไฟล์ในโปรเจ็กต์ (อิง schema ปัจจุบัน)
   out('');
-  out('🌱 กำลังเติมข้อมูล จังหวัด/อำเภอ (ครบทุกจังหวัดทุกอำเภอ)...');
+  out('🌱 กำลังเติมข้อมูล จังหวัด/อำเภอ (จากไฟล์ data/province.json, data/district.json)...');
   try {
     seedThaiAdministrativeDivisions($pdo);
     out('  ✓ เติมข้อมูลจังหวัด/อำเภอเสร็จสมบูรณ์');
@@ -382,9 +382,10 @@ function fetchJson(string $pathOrUrl): array
 }
 
 /**
- * เติมข้อมูลจังหวัด/อำเภอ จากชุดข้อมูลสาธารณะ (earthchie/jquery.Thailand)
- * - ใช้ provinces.json และ amphures.json
- * - แมพชื่อจังหวัดเพื่อเชื่อม FK ของอำเภอ
+ * เติมข้อมูลจังหวัด/อำเภอจากไฟล์ในโฟลเดอร์ data/ ให้ตรงกับ schema ปัจจุบัน
+ * - province.json: คีย์ที่ใช้ id, name_th
+ * - district.json: คีย์ที่ใช้ id, name หรือ name_th, province_id
+ * - ใช้ province_id จากไฟล์ เพื่อให้ FK ของ District ตรงกับ Province
  */
 function seedThaiAdministrativeDivisions(PDO $pdo): void
 {
@@ -392,92 +393,62 @@ function seedThaiAdministrativeDivisions(PDO $pdo): void
   try {
     // ล้างข้อมูลเดิม
     $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
-    $pdo->exec('TRUNCATE TABLE District');
-    $pdo->exec('TRUNCATE TABLE Province');
+    $pdo->exec('TRUNCATE TABLE district');
+    $pdo->exec('TRUNCATE TABLE province');
     $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
 
     // เริ่ม transaction สำหรับการ INSERT เท่านั้น (หลีกเลี่ยง TRUNCATE ซึ่งทำ implicit commit)
     $pdo->beginTransaction();
 
-    // โหลด JSON (พยายามโหลดจากไฟล์ภายในก่อน แล้วค่อย fallback ไปที่เว็บ)
     $baseDir = __DIR__ . '/data';
-    $provPathLocal = $baseDir . '/provinces.json';
-    $amphPathLocal = $baseDir . '/amphures.json';
+    $provPath = $baseDir . '/province.json';
+    $distPath = $baseDir . '/district.json';
 
-    $provUrlPrimary = 'https://raw.githubusercontent.com/earthchie/jquery.Thailand/master/database/provinces.json';
-    $amphUrlPrimary = 'https://raw.githubusercontent.com/earthchie/jquery.Thailand/master/database/amphures.json';
-    $provUrlAlt1    = 'https://cdn.jsdelivr.net/gh/earthchie/jquery.Thailand@master/database/provinces.json';
-    $amphUrlAlt1    = 'https://cdn.jsdelivr.net/gh/earthchie/jquery.Thailand@master/database/amphures.json';
-    $provUrlAlt2    = 'https://raw.fastgit.org/earthchie/jquery.Thailand/master/database/provinces.json';
-    $amphUrlAlt2    = 'https://raw.fastgit.org/earthchie/jquery.Thailand/master/database/amphures.json';
-
-    $provinces = [];
-    $amphures  = [];
-    $mappedPath = __DIR__ . '/data/districts_mapped.json';
-    try {
-      // Load provinces JSON (local or remote)
-      if (is_file($provPathLocal)) {
-        $provinces = fetchJson($provPathLocal);
-      } else {
-        try { $provinces = fetchJson($provUrlPrimary); } catch (Throwable $e1) {
-        try { $provinces = fetchJson($provUrlAlt1); } catch (Throwable $e2) {
-        $provinces = fetchJson($provUrlAlt2); }}
-      }
-
-      // Only load amphures when no mapped file is present
-      if (!is_file($mappedPath)) {
-        if (is_file($amphPathLocal)) {
-          $amphures = fetchJson($amphPathLocal);
-        } else {
-          try { $amphures = fetchJson($amphUrlPrimary); } catch (Throwable $e1) {
-          try { $amphures = fetchJson($amphUrlAlt1); } catch (Throwable $e2) {
-          $amphures = fetchJson($amphUrlAlt2); }}
-        }
-      }
-    } catch (Throwable $e) {
-      throw new RuntimeException('โหลดชุดข้อมูลจังหวัด/อำเภอไม่สำเร็จ: ' . $e->getMessage());
+    if (!is_file($provPath)) {
+      throw new RuntimeException('ไม่พบไฟล์ province.json ที่ ' . $provPath);
+    }
+    if (!is_file($distPath)) {
+      throw new RuntimeException('ไม่พบไฟล์ district.json ที่ ' . $distPath);
     }
 
-    // แทรกจังหวัด
-    $stmtProv = $pdo->prepare('INSERT INTO Province (province_name) VALUES (:name)');
-    $nameToId = [];
-    foreach ($provinces as $prov) {
-      $name = isset($prov['name']) ? (string)$prov['name'] : '';
-      if ($name === '') continue;
-      $stmtProv->execute([':name' => $name]);
-      $nameToId[$name] = (int)$pdo->lastInsertId();
+    $provinces = fetchJson($provPath);
+    $districts = fetchJson($distPath);
+
+    if (!is_array($provinces) || empty($provinces)) {
+      throw new RuntimeException('province.json ว่างหรือรูปแบบไม่ถูกต้อง');
+    }
+    if (!is_array($districts) || empty($districts)) {
+      throw new RuntimeException('district.json ว่างหรือรูปแบบไม่ถูกต้อง');
     }
 
-    // สร้าง mapping จาก province_id ของ JSON -> ชื่อ (เพื่อแมพไปยังตารางจริง)
-    $idToName = [];
+    // แทรกจังหวัด: ใช้ id จากไฟล์เพื่อให้ FK ของอำเภอตรง (schema: province_name)
+    $stmtProv = $pdo->prepare('INSERT INTO province (province_id, province_name) VALUES (:id, :name)');
     foreach ($provinces as $prov) {
       $pid  = isset($prov['id']) ? (int)$prov['id'] : 0;
-      $name = isset($prov['name']) ? (string)$prov['name'] : '';
-      if ($pid > 0 && $name !== '') $idToName[$pid] = $name;
+      $name = isset($prov['name_th']) ? (string)$prov['name_th'] : (isset($prov['name']) ? (string)$prov['name'] : '');
+      if ($pid <= 0 || $name === '') {
+        continue;
+      }
+      $stmtProv->execute([
+        ':id'   => $pid,
+        ':name' => $name,
+      ]);
     }
 
-    // พยายามใช้ไฟล์แมพสำเร็จรูปหากมี (districts_mapped.json)
-    $stmtDist = $pdo->prepare('INSERT INTO District (district_name, province_id) VALUES (:name, :pid)');
-    if (is_file($mappedPath)) {
-      $mapped = fetchJson($mappedPath);
-      foreach ($mapped as $row) {
-        $dName = isset($row['district_name']) ? (string)$row['district_name'] : '';
-        $pid   = isset($row['province_id']) ? (int)$row['province_id'] : 0;
-        if ($dName === '' || $pid <= 0) continue;
-        $stmtDist->execute([':name' => $dName, ':pid' => $pid]);
+    // แทรกอำเภอ: ใช้ province_id จากไฟล์ให้ตรงกับ Province
+    $stmtDist = $pdo->prepare('INSERT INTO district (district_id, district_name, province_id) VALUES (:id, :name, :pid)');
+    foreach ($districts as $dist) {
+      $did  = isset($dist['id']) ? (int)$dist['id'] : 0;
+      $name = isset($dist['district_name']) ? (string)$dist['district_name'] : (isset($dist['name_th']) ? (string)$dist['name_th'] : (isset($dist['name']) ? (string)$dist['name'] : ''));
+      $pid  = isset($dist['province_id']) ? (int)$dist['province_id'] : 0;
+      if ($did <= 0 || $name === '' || $pid <= 0) {
+        continue;
       }
-    } else {
-      // แทรกจาก amphures dataset
-      foreach ($amphures as $amph) {
-        $dName = isset($amph['name']) ? (string)$amph['name'] : '';
-        $pIdSrc = isset($amph['province_id']) ? (int)$amph['province_id'] : 0;
-        if ($dName === '' || $pIdSrc <= 0) continue;
-        $pName = $idToName[$pIdSrc] ?? null;
-        if ($pName === null) continue;
-        $realPid = $nameToId[$pName] ?? null;
-        if ($realPid === null) continue;
-        $stmtDist->execute([':name' => $dName, ':pid' => $realPid]);
-      }
+      $stmtDist->execute([
+        ':id'   => $did,
+        ':name' => $name,
+        ':pid'  => $pid,
+      ]);
     }
 
     $pdo->commit();

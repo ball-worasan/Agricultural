@@ -55,16 +55,14 @@ class ContractService
   {
     try {
       $contract = Database::fetchOne(
-        'SELECT c.*, u.firstname AS tenant_firstname, u.lastname AS tenant_lastname, 
-                        u.email AS tenant_email, u.phone AS tenant_phone,
-                        o.firstname AS owner_firstname, o.lastname AS owner_lastname,
-                        o.email AS owner_email, o.phone AS owner_phone,
-                        p.title AS property_title, p.location, p.province
-                 FROM contracts c
-                 JOIN users u ON c.user_id = u.id
-                 JOIN users o ON c.owner_id = o.id
-                 JOIN properties p ON c.property_id = p.id
-                 WHERE c.id = ?',
+        'SELECT c.*, u.full_name AS tenant_name, u.phone AS tenant_phone,
+                        o.full_name AS owner_name, o.phone AS owner_phone,
+                        ra.area_name, ra.area_size
+                 FROM contract c
+                 JOIN users u ON c.booking_id = u.user_id
+                 JOIN users o ON ra.user_id = o.user_id
+                 JOIN rental_area ra ON c.booking_id = ra.area_id
+                 WHERE c.contract_id = ?',
         [$contractId]
       );
 

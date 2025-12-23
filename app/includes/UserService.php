@@ -6,23 +6,23 @@ require_once __DIR__ . '/NotificationService.php';
 
 /**
  * User Service
- * จัดการผู้ใช้ - ลืมรหัสผ่าน, เปลี่ยนรหัส, Email verification
+ * จัดการผู้ใช้ - ลืมรหัสผ่าน, เปลี่ยนรหัส
  */
 class UserService
 {
   /**
    * สร้าง token สำหรับ reset password
    */
-  public static function createPasswordResetToken(string $email): ?string
+  public static function createPasswordResetToken(string $username): ?string
   {
     try {
       $user = Database::fetchOne(
-        'SELECT id FROM users WHERE email = ? LIMIT 1',
-        [$email]
+        'SELECT user_id FROM users WHERE username = ? LIMIT 1',
+        [$username]
       );
 
       if (!$user) {
-        // ไม่บอกว่า email ไม่มีในระบบ (security)
+        // ไม่บอกว่า username ไม่มีในระบบ (security)
         return null;
       }
 
@@ -30,14 +30,14 @@ class UserService
       $expiresAt = (new DateTimeImmutable())->modify('+1 hour')->format('Y-m-d H:i:s');
 
       Database::execute(
-        'UPDATE users SET password_reset_token = ?, password_reset_expires_at = ? WHERE id = ?',
-        [$token, $expiresAt, (int)$user['id']]
+        'UPDATE users SET password_reset_token = ?, password_reset_expires_at = ? WHERE user_id = ?',
+        [$token, $expiresAt, (int)$user['user_id']]
       );
 
       return $token;
     } catch (Throwable $e) {
       app_log('password_reset_token_error', [
-        'email' => $email,
+        'username' => $username,
         'error' => $e->getMessage(),
       ]);
       return null;
@@ -83,7 +83,7 @@ class UserService
   {
     try {
       $user = Database::fetchOne(
-        'SELECT password FROM users WHERE id = ? LIMIT 1',
+        'SELECT password FROM users WHERE user_id = ? LIMIT 1',
         [$userId]
       );
 
@@ -97,7 +97,7 @@ class UserService
       }
 
       Database::execute(
-        'UPDATE users SET password = ? WHERE id = ?',
+        'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
         [$hashedPassword, $userId]
       );
 
@@ -108,56 +108,6 @@ class UserService
         'error' => $e->getMessage(),
       ]);
       return ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน'];
-    }
-  }
-
-  /**
-   * สร้าง email verification token
-   */
-  public static function createEmailVerificationToken(int $userId): ?string
-  {
-    try {
-      $token = bin2hex(random_bytes(32));
-
-      Database::execute(
-        'UPDATE users SET email_verification_token = ? WHERE id = ?',
-        [$token, $userId]
-      );
-
-      return $token;
-    } catch (Throwable $e) {
-      app_log('email_verification_token_error', [
-        'user_id' => $userId,
-        'error' => $e->getMessage(),
-      ]);
-      return null;
-    }
-  }
-
-  /**
-   * ตรวจสอบ email
-   */
-  public static function verifyEmail(string $token): bool
-  {
-    try {
-      $user = Database::fetchOne(
-        'SELECT id FROM users WHERE email_verification_token = ? LIMIT 1',
-        [$token]
-      );
-
-      if (!$user) {
-        return false;
-      }
-
-      Database::execute(
-        'UPDATE users SET email_verified_at = NOW(), email_verification_token = NULL WHERE id = ?',
-        [(int)$user['id']]
-      );
-
-      return true;
-    } catch (Throwable $e) {
-      app_log('email_verification_error', ['error' => $e->getMessage()]);
-      return false;
     }
   }
 }

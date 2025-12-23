@@ -65,7 +65,7 @@ try {
 // Check admin authentication
 // ----------------------------
 $user = current_user();
-if ($user === null || ($user['role'] ?? '') !== 'admin') {
+if ($user === null || ($user['role'] ?? 0) !== ROLE_ADMIN) {
   if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     json_response(['success' => false, 'message' => 'Unauthorized'], 403);
   } else {
@@ -111,16 +111,17 @@ if ($method === 'POST' && isset($_POST['verify_payment'])) {
 try {
   $pendingPayments = Database::fetchAll(
     'SELECT 
-            p.id, p.booking_id, p.user_id, p.property_id, p.payment_type, p.amount, 
-            p.slip_image, p.payment_date, p.created_at,
-            u.firstname, u.lastname, u.email,
-            pr.title AS property_title,
-            b.booking_date
-         FROM payments p
-         JOIN users u ON p.user_id = u.id
-         JOIN properties pr ON p.property_id = pr.id
-         LEFT JOIN bookings b ON p.booking_id = b.id
-         WHERE p.payment_status = "pending"
+            p.payment_id, p.contract_id, p.amount, 
+            p.slip_image, p.payment_date, p.created_at, p.status,
+            u.user_id, u.full_name, u.phone,
+            ra.area_id, ra.area_name,
+            bd.booking_id, bd.booking_date
+         FROM payment p
+         JOIN contract c ON p.contract_id = c.contract_id
+         JOIN booking_deposit bd ON c.booking_id = bd.booking_id
+         JOIN users u ON bd.user_id = u.user_id
+         JOIN rental_area ra ON bd.area_id = ra.area_id
+         WHERE p.status = "pending"
          ORDER BY p.created_at DESC'
   );
 } catch (Throwable $e) {
@@ -148,7 +149,7 @@ try {
               <h3>การชำระเงิน #<?= e((string)$payment['id']); ?></h3>
               <p><strong>ประเภท:</strong> <?= e($payment['payment_type']); ?></p>
               <p><strong>จำนวน:</strong> ฿<?= number_format((float)$payment['amount'], 2); ?></p>
-              <p><strong>ผู้ชำระ:</strong> <?= e($payment['firstname'] . ' ' . $payment['lastname']); ?> (<?= e($payment['email']); ?>)</p>
+              <p><strong>ผู้ชำระ:</strong> <?= e($payment['full_name']); ?></p>
               <p><strong>พื้นที่:</strong> <?= e($payment['property_title']); ?></p>
               <p><strong>วันที่ชำระ:</strong> <?= date('d/m/Y', strtotime($payment['payment_date'])); ?></p>
             </div>

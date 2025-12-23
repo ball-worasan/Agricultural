@@ -62,13 +62,13 @@ $baseJs = [
     };
   </script>
 
-  <!-- โหลด JS ของหน้านั้นๆ ก่อน (ต้องเรียบร้อยก่อน app.js) -->
-  <?php foreach ($pageJs as $src): ?>
-    <script src="<?= e($src); ?>"></script>
+  <!-- โหลด JS พื้นฐาน (ต้องพร้อมก่อนสคริปต์ของหน้า) -->
+  <?php foreach ($baseJs as $src): ?>
+    <script src="<?= e($src); ?>" defer></script>
   <?php endforeach; ?>
 
-  <!-- โหลด JS พื้นฐาน -->
-  <?php foreach ($baseJs as $src): ?>
+  <!-- โหลด JS ของหน้านั้นๆ (defer เพื่อใช้ util จาก base JS) -->
+  <?php foreach ($pageJs as $src): ?>
     <script src="<?= e($src); ?>" defer></script>
   <?php endforeach; ?>
 

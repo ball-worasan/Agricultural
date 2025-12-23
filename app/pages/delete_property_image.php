@@ -5,8 +5,11 @@ declare(strict_types=1);
 // ----------------------------
 // โหลดไฟล์แบบกันพลาด
 // ----------------------------
+if (!defined('BASE_PATH')) {
+  define('BASE_PATH', dirname(__DIR__, 2));
+}
 if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
+  define('APP_PATH', BASE_PATH . '/app');
 }
 
 $databaseFile = APP_PATH . '/config/Database.php';
@@ -54,7 +57,7 @@ if ($user === null) {
   return;
 }
 
-$userId = (int)($user['id'] ?? 0);
+$userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('delete_property_image_invalid_user', ['session_user' => $user]);
   json_response(['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง'], 401);
@@ -81,28 +84,31 @@ if ($action !== 'delete_image') {
   return;
 }
 
-$imageId    = (int)($_POST['image_id'] ?? 0);
-$propertyId = (int)($_POST['property_id'] ?? 0);
+$imageId = (int)($_POST['image_id'] ?? 0);
+$areaId  = (int)($_POST['area_id'] ?? 0);
 
-if ($imageId <= 0 || $propertyId <= 0) {
+if ($imageId <= 0 || $areaId <= 0) {
   json_response(['success' => false, 'message' => 'ข้อมูลไม่ถูกต้อง'], 400);
+  return;
 }
 
 try {
-  $property = Database::fetchOne(
-    'SELECT id FROM properties WHERE id = ? AND owner_id = ? LIMIT 1',
-    [$propertyId, $userId]
+  $area = Database::fetchOne(
+    'SELECT area_id FROM rental_area WHERE area_id = ? AND user_id = ? LIMIT 1',
+    [$areaId, $userId]
   );
-  if (!$property) {
+  if (!$area) {
     json_response(['success' => false, 'message' => 'ไม่มีสิทธิ์ลบรูปภาพนี้'], 403);
+    return;
   }
 
   $image = Database::fetchOne(
-    'SELECT id, image_url FROM property_images WHERE id = ? AND property_id = ? LIMIT 1',
-    [$imageId, $propertyId]
+    'SELECT image_id, image_url FROM area_image WHERE image_id = ? AND area_id = ? LIMIT 1',
+    [$imageId, $areaId]
   );
   if (!$image) {
     json_response(['success' => false, 'message' => 'ไม่พบรูปภาพ'], 404);
+    return;
   }
 
   $relativePath = (string)$image['image_url'];
@@ -112,30 +118,24 @@ try {
     : dirname(__DIR__, 3);
 
   // ลบไฟล์จริง (เฉพาะ allowlist path)
-  $allowedPrefix = '/storage/uploads/properties/';
+  $allowedPrefix = '/storage/uploads/areas/';
+  $fileDeleted = true;
   if ($relativePath !== '' && strpos($relativePath, $allowedPrefix) === 0) {
     $filePath = $projectRoot . $relativePath;
     if (is_file($filePath)) {
-      @unlink($filePath);
+      if (!@unlink($filePath)) {
+        $fileDeleted = false;
+        app_log('delete_property_image_file_unlink_failed', ['file_path' => $filePath]);
+      }
     }
+    // ถ้าไฟล์ไม่มี แค่เดินต่อ
   }
 
-  // ลบ record
-  Database::execute('DELETE FROM property_images WHERE id = ?', [$imageId]);
-
-  // ถ้าเป็น main_image ให้หาใหม่
-  $current = Database::fetchOne('SELECT main_image FROM properties WHERE id = ? LIMIT 1', [$propertyId]);
-  if ($current && (string)$current['main_image'] === $relativePath) {
-    $newMain = Database::fetchOne(
-      'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order LIMIT 1',
-      [$propertyId]
-    );
-    $newMainUrl = $newMain ? (string)$newMain['image_url'] : null;
-    Database::execute('UPDATE properties SET main_image = ? WHERE id = ?', [$newMainUrl, $propertyId]);
-  }
+  // ลบ record จากฐานข้อมูล
+  Database::execute('DELETE FROM area_image WHERE image_id = ?', [$imageId]);
 
   json_response(['success' => true, 'message' => 'ลบรูปภาพสำเร็จ']);
 } catch (Throwable $e) {
-  app_log('delete_property_image_error', ['property_id' => $propertyId, 'image_id' => $imageId, 'error' => $e->getMessage()]);
+  app_log('delete_property_image_error', ['area_id' => $areaId, 'image_id' => $imageId, 'error' => $e->getMessage()]);
   json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาดในการลบรูปภาพ กรุณาลองใหม่อีกครั้ง'], 500);
 }

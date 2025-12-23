@@ -203,7 +203,7 @@ if (!function_exists('is_admin')) {
   function is_admin(): bool
   {
     $user = current_user();
-    return is_array($user) && (($user['role'] ?? null) === 'admin');
+    return is_array($user) && (($user['role'] ?? null) === ROLE_ADMIN);
   }
 }
 

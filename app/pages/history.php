@@ -5,8 +5,11 @@ declare(strict_types=1);
 // ----------------------------
 // โหลดไฟล์แบบกันพลาด
 // ----------------------------
+if (!defined('BASE_PATH')) {
+  define('BASE_PATH', dirname(__DIR__, 2));
+}
 if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
+  define('APP_PATH', BASE_PATH . '/app');
 }
 
 $databaseFile = APP_PATH . '/config/Database.php';
@@ -49,7 +52,7 @@ if ($user === null) {
   redirect('?page=signin');
 }
 
-$userId = (int) ($user['id'] ?? 0);
+$userId = (int) ($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('history_invalid_user', ['session_user' => $user]);
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
@@ -74,12 +77,12 @@ if (isset($_GET['action'])) {
     try {
       $booking = Database::fetchOne(
         '
-                SELECT id, user_id, property_id, booking_date, payment_status, booking_status, 
-                       deposit_amount, total_amount, slip_image, created_at
-                FROM bookings 
+                SELECT booking_id, user_id, area_id, booking_date, deposit_status, 
+                       deposit_amount, created_at
+                FROM booking_deposit 
                 WHERE user_id = ? 
-                  AND property_id = ? 
-                  AND payment_status = "waiting"
+                  AND area_id = ? 
+                  AND deposit_status = "pending"
                 ORDER BY created_at DESC 
                 LIMIT 1
                 ',
@@ -121,14 +124,14 @@ if (isset($_GET['action'])) {
     }
 
     try {
-      // ตรวจสอบว่าเป็นการจองของผู้ใช้นี้และยังไม่ได้ชำระเงิน
+      // ตรวจสอบว่าเป็นการจองของผู้ใช้นี้และยังรอการอนุมัติ
       $booking = Database::fetchOne(
         '
-                SELECT id 
-                FROM bookings 
-                WHERE id = ? 
+                SELECT booking_id 
+                FROM booking_deposit 
+                WHERE booking_id = ? 
                   AND user_id = ? 
-                  AND payment_status = "waiting"
+                  AND deposit_status = "pending"
                 LIMIT 1
                 ',
         [$bookingId, $userId]
@@ -143,9 +146,9 @@ if (isset($_GET['action'])) {
 
       Database::execute(
         '
-                UPDATE bookings 
-                SET booking_status = "cancelled", updated_at = NOW() 
-                WHERE id = ?
+                UPDATE booking_deposit 
+                SET deposit_status = "rejected", updated_at = CURRENT_TIMESTAMP 
+                WHERE booking_id = ?
                 ',
         [$bookingId]
       );
@@ -184,81 +187,61 @@ if (isset($_GET['action'])) {
 
 try {
   $bookings = Database::fetchAll(
-    '
-        SELECT 
-            b.id, b.user_id, b.property_id, b.booking_date, b.rental_start_date, b.rental_end_date,
-            b.payment_status, b.booking_status, b.deposit_amount, b.total_amount, 
-            b.slip_image, b.rejection_reason, b.created_at, b.updated_at,
-            p.title, p.price 
-        FROM bookings b 
-        JOIN properties p ON b.property_id = p.id 
-        WHERE b.user_id = ? 
-          AND b.booking_status != "cancelled"
-        ORDER BY b.created_at DESC
-        ',
+    'SELECT 
+        bd.booking_id, bd.area_id, bd.user_id, bd.booking_date, bd.deposit_amount, bd.deposit_status,
+        bd.created_at, bd.updated_at,
+        COALESCE(ra.area_name, "พื้นที่ถูกลบ") AS area_name,
+        COALESCE(ra.price_per_year, 0) AS price_per_year,
+        COALESCE(ra.deposit_percent, 10) AS deposit_percent,
+        COALESCE(ra.area_status, "ไม่ระบุ") AS area_status,
+        COALESCE(d.district_name, "ไม่ระบุ") AS district_name,
+        COALESCE(p.province_name, "ไม่ระบุ") AS province_name
+     FROM booking_deposit bd
+     LEFT JOIN rental_area ra ON bd.area_id = ra.area_id
+     LEFT JOIN district d ON ra.district_id = d.district_id
+     LEFT JOIN province p ON d.province_id = p.province_id
+     WHERE bd.user_id = ?
+     ORDER BY bd.created_at DESC',
     [$userId]
   );
 } catch (Throwable $e) {
-  app_log('history_fetch_bookings_error', [
-    'user_id' => $userId,
-    'error'   => $e->getMessage(),
-  ]);
+  app_log('history_fetch_bookings_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
   $bookings = [];
 }
 
-function paymentBadgeClass(string $status): string
+function depositStatusBadgeClass(string $status): string
 {
-  return $status === 'waiting' ? 'badge-pay-wait' : 'badge-pay-ok';
+  return match ($status) {
+    'pending' => 'badge-deposit-pending',
+    'approved' => 'badge-deposit-approved',
+    'rejected' => 'badge-deposit-rejected',
+    default => 'badge-deposit-unknown',
+  };
 }
 
-function bookingBadgeClass(string $status): string
+function depositStatusLabel(string $status): string
 {
-  if ($status === 'pending') {
-    return 'badge-book-pending';
-  }
-
-  if ($status === 'approved') {
-    return 'badge-book-approved';
-  }
-
-  if ($status === 'rejected') {
-    return 'badge-book-rejected';
-  }
-
-  return 'badge-book-other';
+  return match ($status) {
+    'pending' => 'รออนุมัติ',
+    'approved' => 'อนุมัติแล้ว',
+    'rejected' => 'ปฏิเสธ',
+    default => 'ไม่ทราบ',
+  };
 }
 
 // สรุปตัวนับสถานะ
-$summary = [
-  'waiting'         => 0,
-  'deposit_success' => 0,
-  'pending'         => 0,
-  'approved'        => 0,
-  'rejected'        => 0,
-];
-
+$summary = ['pending' => 0, 'approved' => 0, 'rejected' => 0];
 foreach ($bookings as $b) {
-  $pay = (string) ($b['payment_status'] ?? '');
-  $book = (string) ($b['booking_status'] ?? '');
-
-  if (isset($summary[$pay])) {
-    $summary[$pay]++;
-  }
-  if (isset($summary[$book])) {
-    $summary[$book]++;
+  $status = (string)($b['deposit_status'] ?? 'pending');
+  if (isset($summary[$status])) {
+    $summary[$status]++;
   }
 }
 ?>
 <div class="history-container">
   <div class="history-header">
-    <h1 class="history-title">📚 ประวัติการจอง / เช่าพื้นที่เกษตรของฉัน</h1>
+    <h1 class="history-title">📚 ประวัติการจองพื้นที่เกษตรของฉัน</h1>
     <div class="history-summary-cards">
-      <div class="summary-card sc-wait" title="รอการชำระเงิน">
-        <span class="sc-label">รอชำระ</span><span class="sc-value"><?= $summary['waiting'] ?></span>
-      </div>
-      <div class="summary-card sc-deposit" title="มัดจำสำเร็จ">
-        <span class="sc-label">มัดจำ</span><span class="sc-value"><?= $summary['deposit_success'] ?></span>
-      </div>
       <div class="summary-card sc-pending" title="รออนุมัติ">
         <span class="sc-label">รออนุมัติ</span><span class="sc-value"><?= $summary['pending'] ?></span>
       </div>
@@ -277,8 +260,6 @@ foreach ($bookings as $b) {
         <label for="statusFilter">สถานะ:</label>
         <select id="statusFilter" class="status-filter" aria-label="กรองตามสถานะ">
           <option value="all">ทั้งหมด</option>
-          <option value="waiting">รอการชำระเงิน</option>
-          <option value="deposit_success">มัดจำสำเร็จ</option>
           <option value="pending">รออนุมัติ</option>
           <option value="approved">อนุมัติแล้ว</option>
           <option value="rejected">ปฏิเสธ</option>
@@ -301,126 +282,54 @@ foreach ($bookings as $b) {
       <a href="?page=home" style="display: inline-block; margin-top: 20px; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px;">🏠 ดูพื้นที่เช่า</a>
     </div>
   <?php else: ?>
-    <!-- Desktop: Table View -->
-    <div class="history-table-wrapper">
-      <table class="booking-table" id="bookingTable">
-        <thead>
-          <tr>
-            <th>รหัส</th>
-            <th>ชื่อพื้นที่</th>
-            <th>วันที่จอง</th>
-            <th>สถานะชำระเงิน</th>
-            <th>สถานะการจอง</th>
-            <th>จำนวนเงิน</th>
-            <th>ดำเนินการ</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($bookings as $b): ?>
-            <?php
-            $payStatus     = (string) ($b['payment_status'] ?? '');
-            $bookStatus    = (string) ($b['booking_status'] ?? '');
-            $payClass      = paymentBadgeClass($payStatus);
-            $bookClass     = bookingBadgeClass($bookStatus);
-            $payLabel      = $payStatus === 'waiting' ? 'รอการชำระเงิน' : 'มัดจำสำเร็จ';
-            $bookLabel     = $bookStatus === 'pending'
-              ? 'รออนุมัติ'
-              : ($bookStatus === 'approved'
-                ? 'อนุมัติแล้ว'
-                : ($bookStatus === 'rejected' ? 'ปฏิเสธ' : e($bookStatus)));
-            $totalAmount   = $b['total_amount'] ?? $b['price'] ?? 0;
-            $priceFormatted = number_format((float) $totalAmount);
-            ?>
-            <tr
-              data-pay="<?= e($payStatus); ?>"
-              data-book="<?= e($bookStatus); ?>"
-              data-title="<?= e($b['title']); ?>">
-              <td><span class="ref-code">#<?= str_pad((string) $b['id'], 6, '0', STR_PAD_LEFT); ?></span></td>
-              <td class="title-cell"><strong><?= e($b['title']); ?></strong></td>
-              <td><span class="date-cell"><?= buddhist_date($b['booking_date']); ?></span></td>
-              <td><span class="badge <?= e($payClass); ?>" data-status="<?= e($payStatus); ?>"><?= e($payLabel); ?></span></td>
-              <td><span class="badge <?= e($bookClass); ?>" data-status="<?= e($bookStatus); ?>"><?= e($bookLabel); ?></span></td>
-              <td><strong>฿<?= $priceFormatted; ?></strong></td>
-              <td class="actions-cell">
-                <?php if ($payStatus === 'waiting'): ?>
-                  <button type="button" class="action-btn pay" data-action="pay" data-id="<?= (int) $b['property_id']; ?>" title="ชำระเงิน">💳 ชำระ</button>
-                  <button type="button" class="action-btn cancel" data-action="cancel" data-id="<?= (int) $b['id']; ?>" title="ยกเลิก">❌</button>
-                <?php elseif ($bookStatus === 'pending'): ?>
-                  <button type="button" class="action-btn view" data-action="view" data-id="<?= (int) $b['property_id']; ?>" title="ดูรายละเอียด">👁️ ดู</button>
-                <?php elseif ($bookStatus === 'approved'): ?>
-                  <button type="button" class="action-btn continue" data-action="continue" data-id="<?= (int) $b['id']; ?>" title="ขั้นตอนต่อไป">➡️ ต่อไป</button>
-                <?php elseif ($bookStatus === 'rejected'): ?>
-                  <button type="button" class="action-btn reason" data-action="reason" data-id="<?= (int) $b['id']; ?>" title="ดูเหตุผล">❓ เหตุผล</button>
-                <?php endif; ?>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Mobile: Card View -->
     <div class="booking-cards" id="bookingCards">
       <?php foreach ($bookings as $b): ?>
         <?php
-        $payStatus      = (string) ($b['payment_status'] ?? '');
-        $bookStatus     = (string) ($b['booking_status'] ?? '');
-        $payClass       = paymentBadgeClass($payStatus);
-        $bookClass      = bookingBadgeClass($bookStatus);
-        $payLabel       = $payStatus === 'waiting' ? 'รอการชำระเงิน' : 'มัดจำสำเร็จ';
-        $bookLabel      = $bookStatus === 'pending'
-          ? 'รออนุมัติ'
-          : ($bookStatus === 'approved'
-            ? 'อนุมัติแล้ว'
-            : ($bookStatus === 'rejected' ? 'ปฏิเสธ' : e($bookStatus)));
-        $totalAmount    = $b['total_amount'] ?? $b['price'] ?? 0;
-        $priceFormatted = number_format((float) $totalAmount);
+        $status = (string)($b['deposit_status'] ?? 'pending');
+        $statusClass = depositStatusBadgeClass($status);
+        $statusLabel = depositStatusLabel($status);
+        $depositAmount = (float)($b['deposit_amount'] ?? 0);
+        $pricePerYear = (float)($b['price_per_year'] ?? 0);
+        $depositPercent = (float)($b['deposit_percent'] ?? 10);
+        $bookingDate = $b['booking_date'] ?? null;
+        $bookingDateLabel = $bookingDate ? date('d/m/Y', strtotime($bookingDate)) : '-';
         ?>
         <div
           class="booking-card"
-          data-pay="<?= e($payStatus); ?>"
-          data-book="<?= e($bookStatus); ?>"
-          data-title="<?= e($b['title']); ?>">
+          data-status="<?= e($status); ?>"
+          data-title="<?= e($b['area_name']); ?>">
           <div class="booking-card-header">
             <div>
-              <div class="booking-card-title"><?= e($b['title']); ?></div>
-              <div class="booking-card-ref">#<?= str_pad((string) $b['id'], 6, '0', STR_PAD_LEFT); ?></div>
+              <h3 class="booking-title"><?= e($b['area_name']); ?></h3>
+              <p class="booking-location"><?= e($b['district_name']); ?>, <?= e($b['province_name']); ?></p>
             </div>
+            <span class="status-badge <?= e($statusClass); ?>"><?= e($statusLabel); ?></span>
           </div>
 
           <div class="booking-card-body">
             <div class="booking-card-field">
-              <div class="booking-card-label">วันที่จอง</div>
-              <div class="booking-card-value"><?= buddhist_date($b['booking_date']); ?></div>
+              <span class="field-label">วันที่จอง:</span>
+              <span class="field-value"><?= e($bookingDateLabel); ?></span>
             </div>
             <div class="booking-card-field">
-              <div class="booking-card-label">จำนวนเงิน</div>
-              <div class="booking-card-value">฿<?= $priceFormatted; ?></div>
+              <span class="field-label">ราคาต่อปี:</span>
+              <span class="field-value">฿<?= number_format($pricePerYear, 2); ?></span>
             </div>
             <div class="booking-card-field">
-              <div class="booking-card-label">ชำระเงิน</div>
-              <div class="booking-card-value">
-                <span class="badge <?= e($payClass); ?>" data-status="<?= e($payStatus); ?>"><?= e($payLabel); ?></span>
-              </div>
+              <span class="field-label">มัดจำ (<?= (int)$depositPercent ?>%):</span>
+              <span class="field-value price">฿<?= number_format($depositAmount, 2); ?></span>
             </div>
             <div class="booking-card-field">
-              <div class="booking-card-label">สถานะ</div>
-              <div class="booking-card-value">
-                <span class="badge <?= e($bookClass); ?>" data-status="<?= e($bookStatus); ?>"><?= e($bookLabel); ?></span>
-              </div>
+              <span class="field-label">สถานะพื้นที่:</span>
+              <span class="field-value"><?= e($b['area_status'] === 'available' ? 'พร้อมให้เช่า' : ($b['area_status'] === 'booked' ? 'ติดจอง' : 'ปิดให้เช่า')); ?></span>
             </div>
           </div>
 
           <div class="booking-card-actions">
-            <?php if ($payStatus === 'waiting'): ?>
-              <button type="button" class="action-btn pay" data-action="pay" data-id="<?= (int) $b['property_id']; ?>" title="ชำระเงิน">💳 ชำระ</button>
-              <button type="button" class="action-btn cancel" data-action="cancel" data-id="<?= (int) $b['id']; ?>" title="ยกเลิก">❌ ยกเลิก</button>
-            <?php elseif ($bookStatus === 'pending'): ?>
-              <button type="button" class="action-btn view" data-action="view" data-id="<?= (int) $b['property_id']; ?>" title="ดูรายละเอียด">👁️ ดูรายละเอียด</button>
-            <?php elseif ($bookStatus === 'approved'): ?>
-              <button type="button" class="action-btn continue" data-action="continue" data-id="<?= (int) $b['id']; ?>" title="ขั้นตอนต่อไป">➡️ ขั้นตอนต่อไป</button>
-            <?php elseif ($bookStatus === 'rejected'): ?>
-              <button type="button" class="action-btn reason" data-action="reason" data-id="<?= (int) $b['id']; ?>" title="ดูเหตุผล">❓ ดูเหตุผล</button>
+            <?php if ($status === 'pending'): ?>
+              <button type="button" class="action-btn cancel" data-action="cancel" data-id="<?= (int)$b['booking_id']; ?>" title="ยกเลิก">❌ ยกเลิก</button>
+            <?php elseif ($status === 'approved'): ?>
+              <button type="button" class="action-btn view" data-action="view" data-id="<?= (int)$b['area_id']; ?>" title="ดูรายละเอียด">👁️ ดูรายละเอียด</button>
             <?php endif; ?>
           </div>
         </div>
@@ -428,110 +337,3 @@ foreach ($bookings as $b) {
     </div>
   <?php endif; ?>
 </div>
-
-<script>
-  const statusFilter = document.getElementById('statusFilter');
-  const textFilter = document.getElementById('textFilter');
-  const tableRows = Array.from(document.querySelectorAll('#bookingTable tbody tr'));
-  const cardItems = Array.from(document.querySelectorAll('#bookingCards .booking-card'));
-
-  function applyFilters() {
-    const s = statusFilter.value.toLowerCase();
-    const t = textFilter.value.toLowerCase();
-
-    const filterFn = (el) => {
-      const pay = (el.dataset.pay || '').toLowerCase();
-      const book = (el.dataset.book || '').toLowerCase();
-      const title = (el.dataset.title || '').toLowerCase();
-
-      let show = true;
-      if (s !== 'all') {
-        show = (pay === s) || (book === s);
-      }
-      if (show && t) {
-        show = title.includes(t);
-      }
-      el.style.display = show ? '' : 'none';
-    };
-
-    tableRows.forEach(filterFn);
-    cardItems.forEach(filterFn);
-  }
-
-  if (statusFilter && textFilter) {
-    statusFilter.addEventListener('change', applyFilters);
-    textFilter.addEventListener('input', applyFilters);
-
-    document.getElementById('resetFilters')?.addEventListener('click', () => {
-      statusFilter.value = 'all';
-      textFilter.value = '';
-      applyFilters();
-    });
-  }
-
-  document.querySelectorAll('.action-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (btn.classList.contains('disabled')) return;
-
-      const act = btn.dataset.action;
-      const id = btn.dataset.id;
-
-      switch (act) {
-        case 'pay': {
-          fetch(`?page=history&action=get_booking&id=${encodeURIComponent(id)}`)
-            .then((res) => res.json())
-            .then((data) => {
-              if (data && data.success && data.booking) {
-                const b = data.booking;
-                const d = new Date(b.booking_date);
-                window.location =
-                  `?page=payment&id=${encodeURIComponent(id)}&day=${d.getDate()}&month=${d.getMonth()}&year=${d.getFullYear()}`;
-              } else {
-                alert(data && data.message ? data.message : 'ไม่พบข้อมูลการจอง');
-              }
-            })
-            .catch(() => {
-              const tomorrow = new Date();
-              tomorrow.setDate(tomorrow.getDate() + 1);
-              window.location =
-                `?page=payment&id=${encodeURIComponent(id)}&day=${tomorrow.getDate()}&month=${tomorrow.getMonth()}&year=${tomorrow.getFullYear()}`;
-            });
-          break;
-        }
-        case 'cancel': {
-          if (!confirm(`คุณต้องการยกเลิกการจอง #${id} ใช่หรือไม่?\n\nการยกเลิกจะไม่สามารถกู้คืนได้`)) {
-            return;
-          }
-
-          fetch(`?page=history&action=cancel_booking&id=${encodeURIComponent(id)}`, {
-              method: 'POST',
-            })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data && data.success) {
-                alert('ยกเลิกการจองสำเร็จ');
-                window.location.reload();
-              } else {
-                alert('เกิดข้อผิดพลาด: ' + (data && data.message ? data.message : 'ไม่สามารถยกเลิกได้'));
-              }
-            })
-            .catch(() => {
-              alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
-            });
-          break;
-        }
-        case 'view':
-          window.location = `?page=detail&id=${encodeURIComponent(id)}`;
-          break;
-        case 'continue':
-          alert('ไปขั้นตอนต่อไป (พัฒนาในอนาคต)');
-          break;
-        case 'reason':
-          // ดึงเหตุผลจาก query parameter หรือแสดงข้อความทั่วไป
-          const reason = new URLSearchParams(window.location.search).get('reason') || 'เอกสารไม่ครบถ้วน';
-          alert('เหตุผล: ' + reason);
-          break;
-      }
-    });
-  });
-</script>

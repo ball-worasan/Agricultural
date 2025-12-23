@@ -94,6 +94,21 @@
             e.target.closest(".menu-btn");
           if (!currentItem) return;
 
+          const disabledItem = currentItem.closest('[data-disabled="true"]');
+          if (
+            disabledItem &&
+            (e.key === "Enter" || e.key === " " || e.key === "Spacebar")
+          ) {
+            e.preventDefault();
+            App.showToast(
+              "แจ้งเตือน",
+              "ฟีเจอร์นี้จะพร้อมใช้งานเร็วๆ นี้",
+              "warning",
+              2500
+            );
+            return;
+          }
+
           switch (e.key) {
             case "ArrowDown":
               e.preventDefault();

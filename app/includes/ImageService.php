@@ -73,9 +73,6 @@ class ImageService
       default => false,
     };
 
-    imagedestroy($source);
-    imagedestroy($destination);
-
     return $success !== false;
   }
 
@@ -104,12 +101,19 @@ class ImageService
 
     $destinationPath = $uploadDir . '/' . $filename;
 
-    // Process และ resize รูปภาพ
-    if (!self::processImage($file['tmp_name'], $destinationPath)) {
-      return null;
+    // ลองใช้ ImageService ถ้า GD library พร้อม
+    if (extension_loaded('gd')) {
+      if (self::processImage($file['tmp_name'], $destinationPath)) {
+        return $destinationPath;
+      }
     }
 
-    return $destinationPath;
+    // Fallback: Copy ไฟล์โดยตรง (ไม่ resize)
+    if (copy($file['tmp_name'], $destinationPath)) {
+      return $destinationPath;
+    }
+
+    return null;
   }
 
   /**

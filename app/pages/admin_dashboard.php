@@ -45,7 +45,7 @@ try {
 // ----------------------------
 $user = current_user();
 
-if ($user === null || ($user['role'] ?? '') !== 'admin') {
+if ($user === null || ($user['role'] ?? 0) !== ROLE_ADMIN) {
   flash('error', 'คุณไม่มีสิทธิ์เข้าถึงหน้านี้');
   redirect('?page=signin');
 }
@@ -236,16 +236,15 @@ try {
   $recentBookings = Database::fetchAll(
     '
         SELECT 
-            b.id, b.user_id, b.property_id, b.booking_date, b.payment_status, b.booking_status,
-            b.deposit_amount, b.total_amount, b.slip_image, b.created_at,
-            p.title  AS property_title, 
-            u.firstname, 
-            u.lastname, 
-            u.email 
-        FROM bookings b 
-        LEFT JOIN properties p ON b.property_id = p.id 
-        LEFT JOIN users     u ON b.user_id     = u.id 
-        ORDER BY b.created_at DESC 
+            bd.booking_id, bd.area_id, bd.user_id, bd.booking_date, bd.deposit_status,
+            bd.deposit_amount, bd.created_at,
+            ra.area_name,
+            u.username, 
+            u.full_name
+        FROM booking_deposit bd
+        LEFT JOIN rental_area ra ON bd.area_id = ra.area_id
+        LEFT JOIN users u ON bd.user_id = u.user_id
+        ORDER BY bd.created_at DESC
         LIMIT 10
         '
   );
@@ -256,7 +255,7 @@ try {
 
 try {
   $allUsers = Database::fetchAll(
-    'SELECT id, username, email, firstname, lastname, phone, role, created_at FROM users ORDER BY created_at DESC'
+    'SELECT user_id, username, full_name, phone, role, created_at FROM users ORDER BY created_at DESC'
   );
 } catch (Throwable $e) {
   app_log('admin_all_users_error', ['error' => $e->getMessage()]);
@@ -431,23 +430,21 @@ try {
         <tbody>
           <?php foreach ($recentBookings as $booking): ?>
             <tr>
-              <td><?= e((string) $booking['id']); ?></td>
+              <td><?= e((string) $booking['booking_id']); ?></td>
               <td>
-                <?= e((string) $booking['firstname'] . ' ' . (string) $booking['lastname']); ?>
-                <br><small><?= e((string) $booking['email']); ?></small>
+                <?= e((string) $booking['full_name']); ?>
               </td>
-              <td><?= e((string) $booking['property_title']); ?></td>
+              <td><?= e((string) $booking['area_name']); ?></td>
               <td><?= date('d/m/Y', strtotime((string) $booking['booking_date'])); ?></td>
               <td>฿<?= number_format((float) $booking['deposit_amount']); ?></td>
               <td>
                 <form method="POST" style="display:inline;">
                   <input type="hidden" name="action" value="update_booking_status">
-                  <input type="hidden" name="booking_id" value="<?= (int) $booking['id']; ?>">
-                  <select name="booking_status" onchange="this.form.submit()" class="status-select">
-                    <option value="pending" <?= $booking['booking_status'] === 'pending'   ? 'selected' : ''; ?>>รอดำเนินการ</option>
-                    <option value="approved" <?= $booking['booking_status'] === 'approved' ? 'selected' : ''; ?>>อนุมัติแล้ว</option>
-                    <option value="rejected" <?= $booking['booking_status'] === 'rejected' ? 'selected' : ''; ?>>ปฏิเสธ</option>
-                    <option value="cancelled" <?= $booking['booking_status'] === 'cancelled' ? 'selected' : ''; ?>>ยกเลิก</option>
+                  <input type="hidden" name="booking_id" value="<?= (int) $booking['booking_id']; ?>">
+                  <select name="deposit_status" onchange="this.form.submit()" class="status-select">
+                    <option value="pending" <?= $booking['deposit_status'] === 'pending'   ? 'selected' : ''; ?>>รอดำเนินการ</option>
+                    <option value="approved" <?= $booking['deposit_status'] === 'approved' ? 'selected' : ''; ?>>อนุมัติแล้ว</option>
+                    <option value="rejected" <?= $booking['deposit_status'] === 'rejected' ? 'selected' : ''; ?>>ปฏิเสธ</option>
                   </select>
                 </form>
               </td>
@@ -504,21 +501,20 @@ try {
         <tbody>
           <?php foreach ($allUsers as $u): ?>
             <tr>
-              <td><?= e((string) $u['id']); ?></td>
-              <td><?= e((string) $u['firstname'] . ' ' . (string) $u['lastname']); ?></td>
-              <td><?= e((string) $u['email']); ?></td>
+              <td><?= e((string) $u['user_id']); ?></td>
+              <td><?= e((string) $u['full_name']); ?></td>
               <td><?= e((string) ($u['phone'] ?? '')); ?></td>
               <td>
-                <span class="badge badge-<?= $u['role'] === 'admin' ? 'admin' : 'user'; ?>">
-                  <?= $u['role'] === 'admin' ? 'ผู้ดูแล' : 'สมาชิก'; ?>
+                <span class="badge badge-<?= (int)($u['role'] ?? 0) === ROLE_ADMIN ? 'admin' : 'user'; ?>">
+                  <?= (int)($u['role'] ?? 0) === ROLE_ADMIN ? 'ผู้ดูแล' : 'สมาชิก'; ?>
                 </span>
               </td>
               <td><?= date('d/m/Y H:i', strtotime((string) $u['created_at'])); ?></td>
               <td class="actions">
-                <?php if ((int) $u['id'] !== (int) $user['id']): ?>
+                <?php if ((int) $u['user_id'] !== (int) $user['user_id']): ?>
                   <form method="POST" style="display:inline;" onsubmit="return confirm('ยืนยันการลบผู้ใช้นี้?');">
                     <input type="hidden" name="action" value="delete_user">
-                    <input type="hidden" name="user_id" value="<?= (int) $u['id']; ?>">
+                    <input type="hidden" name="user_id" value="<?= (int) $u['user_id']; ?>">
                     <button type="submit" class="btn-action delete" title="ลบ">🗑️</button>
                   </form>
                 <?php else: ?>

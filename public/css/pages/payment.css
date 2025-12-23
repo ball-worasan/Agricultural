@@ -132,14 +132,14 @@
   border-radius: var(--radius-sm);
 }
 
-.pay-meta>div {
+.pay-meta > div {
   display: flex;
   justify-content: space-between;
   padding: var(--spacing-xs) 0;
   border-bottom: 1px solid var(--border-color);
 }
 
-.pay-meta>div:last-child {
+.pay-meta > div:last-child {
   border-bottom: none;
 }
 
@@ -173,7 +173,7 @@
   display: inline-block;
   padding: 0.5rem 1rem;
   background: var(--primary-color);
-  color: var(--bg-white);
+  color: #ffffff;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 0.85rem;

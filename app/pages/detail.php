@@ -69,14 +69,20 @@ if ($id <= 0) {
 $item = null;
 try {
   $item = Database::fetchOne(
-    'SELECT id, owner_id, title, location, province, area, area_rai, area_ngan, area_sqwa, category, has_water, has_electric, soil_type, irrigation, price, status, is_active, available_from, available_to, description, main_image, created_at, updated_at FROM properties WHERE id = ? LIMIT 1',
+    'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.area_status,
+            d.district_name, p.province_name
+     FROM rental_area ra
+     JOIN district d ON ra.district_id = d.district_id
+     JOIN province p ON d.province_id = p.province_id
+     WHERE ra.area_id = ?
+     LIMIT 1',
     [$id]
   );
 } catch (Throwable $e) {
   app_log('property_detail_fetch_error', [
-    'property_id' => $id,
-    'error'       => $e->getMessage(),
-    'trace'       => $e->getTraceAsString(),
+    'area_id' => $id,
+    'error'   => $e->getMessage(),
+    'trace'   => $e->getTraceAsString(),
   ]);
 }
 
@@ -91,7 +97,7 @@ if (!$item) {
 $imageUrls = [];
 try {
   $images = Database::fetchAll(
-    'SELECT image_url FROM property_images WHERE property_id = ? ORDER BY display_order',
+    'SELECT image_url FROM area_image WHERE area_id = ? ORDER BY image_id',
     [$id]
   );
   $imageUrls = array_values(array_filter(array_map(
@@ -100,18 +106,10 @@ try {
   )));
 } catch (Throwable $e) {
   app_log('property_detail_fetch_images_error', [
-    'property_id' => $id,
-    'error'       => $e->getMessage(),
+    'area_id' => $id,
+    'error'   => $e->getMessage(),
   ]);
   $imageUrls = [];
-}
-
-// ถ้าไม่มีรูปใน property_images ให้ใช้ main_image
-if (empty($imageUrls) && !empty($item['main_image'])) {
-  $main = is_string($item['main_image']) ? trim($item['main_image']) : '';
-  if ($main !== '') {
-    $imageUrls = [$main];
-  }
 }
 
 // ถ้ายังไม่มีให้ใช้ placeholder
@@ -121,25 +119,26 @@ if (empty($imageUrls)) {
 
 // กำหนดสถานะ
 $statusText = [
-  'available' => 'ว่าง',
-  'booked'    => 'ติดจอง',
-  'sold'      => 'ขายแล้ว',
+  'available'   => 'พร้อมให้เช่า',
+  'booked'      => 'ติดจอง',
+  'unavailable' => 'ปิดให้เช่า',
 ];
 
 $statusClass = [
-  'available' => 'status-available',
-  'booked'    => 'status-booked',
-  'sold'      => 'status-sold',
+  'available'   => 'status-available',
+  'booked'      => 'status-booked',
+  'unavailable' => 'status-unavailable',
 ];
 
-$rawStatus      = (string) ($item['status'] ?? 'available');
+$rawStatus      = (string) ($item['area_status'] ?? 'available');
 $currentStatus  = array_key_exists($rawStatus, $statusText) ? $rawStatus : 'available';
 
 // คำนวณมัดจำ / ราคา
-$priceRaw       = (int) ($item['price'] ?? 0);
-$depositRaw     = (int) ceil($priceRaw / 12 ?: 0);
-$deposit        = number_format($depositRaw);
-$priceFormatted = number_format($priceRaw);
+$priceRaw       = (float) ($item['price_per_year'] ?? 0);
+$depositPercent = (float) ($item['deposit_percent'] ?? 0);
+$depositRaw     = $priceRaw * $depositPercent / 100.0;
+$deposit        = number_format($depositRaw, 2);
+$priceFormatted = number_format($priceRaw, 2);
 
 // ตรวจสอบว่าเป็นเจ้าของหรือไม่ + เตรียมข้อมูล user ที่ล็อกอิน
 $isOwner       = false;
@@ -148,23 +147,20 @@ $userFullName  = 'ไม่ระบุ';
 $userPhoneText = 'ไม่ระบุ';
 
 if ($loggedInUser !== null) {
-  $currentUserId = (int) ($loggedInUser['id'] ?? 0);
-  $ownerId       = (int) ($item['owner_id'] ?? 0);
+  $currentUserId = (int) ($loggedInUser['user_id'] ?? $loggedInUser['id'] ?? 0);
+  $ownerId       = (int) ($item['user_id'] ?? 0);
   $isOwner       = $currentUserId > 0 && $currentUserId === $ownerId;
 
-  $firstName = (string) ($loggedInUser['firstname'] ?? '');
-  $lastName  = (string) ($loggedInUser['lastname'] ?? '');
-  $full = trim($firstName . ' ' . $lastName);
-  $userFullName = $full !== '' ? $full : 'ไม่ระบุ';
+  $fullName = (string) ($loggedInUser['full_name'] ?? '');
+  $userFullName = $fullName !== '' ? $fullName : 'ไม่ระบุ';
 
-  // ถ้า session ไม่มี phone ค่อยยิง DB เอา
   $phoneFromSession = $loggedInUser['phone'] ?? null;
   if (is_string($phoneFromSession) && trim($phoneFromSession) !== '') {
     $userPhoneText = trim($phoneFromSession);
   } elseif ($currentUserId > 0) {
     try {
       $userRow = Database::fetchOne(
-        'SELECT phone FROM users WHERE id = ? LIMIT 1',
+        'SELECT phone FROM users WHERE user_id = ? LIMIT 1',
         [$currentUserId]
       );
       if ($userRow && !empty($userRow['phone'])) {
@@ -179,12 +175,23 @@ if ($loggedInUser !== null) {
   }
 }
 
-$titleText = (string) ($item['title'] ?? '');
-$locationText = (string) ($item['location'] ?? '');
-$descText = (string) ($item['description'] ?? '');
+$titleText    = (string) ($item['area_name'] ?? '');
+$locationText = trim((string) ($item['district_name'] ?? ''));
+if (!empty($item['province_name'])) {
+  $locationText .= ($locationText !== '' ? ', ' : '') . (string)$item['province_name'];
+}
+
+// ขนาดพื้นที่ แสดงเป็นทศนิยมไร่
+$areaSizeLabel = number_format((float)($item['area_size'] ?? 0), 2) . ' ไร่';
+$descText = 'ไม่มีรายละเอียดเพิ่มเติม';
 
 ?>
-<div class="detail-container compact">
+<div
+  class="detail-container compact"
+  data-images='<?= e(json_encode($imageUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>'
+  data-area-id="<?= (int)$id; ?>"
+  data-csrf="<?= e($csrfToken); ?>"
+  data-status="<?= e($currentStatus); ?>">
   <div class="detail-wrapper">
     <div class="detail-topbar">
       <a href="?page=home" class="back-button minimal" aria-label="กลับหน้ารายการ">ย้อนกลับ</a>
@@ -209,8 +216,8 @@ $descText = (string) ($item['description'] ?? '');
               style="background: var(--skeleton-bg);">
 
             <?php if (count($imageUrls) > 1): ?>
-              <button type="button" class="gallery-nav prev" onclick="changeImage(-1)" aria-label="รูปก่อนหน้า">‹</button>
-              <button type="button" class="gallery-nav next" onclick="changeImage(1)" aria-label="รูปถัดไป">›</button>
+              <button type="button" class="gallery-nav prev js-gallery-nav" data-direction="-1" aria-label="รูปก่อนหน้า">‹</button>
+              <button type="button" class="gallery-nav next js-gallery-nav" data-direction="1" aria-label="รูปถัดไป">›</button>
               <div class="image-counter" id="imageCounter">
                 1 / <?= (int) count($imageUrls); ?>
               </div>
@@ -222,7 +229,7 @@ $descText = (string) ($item['description'] ?? '');
               <?php foreach ($imageUrls as $i => $u): ?>
                 <img
                   data-src="<?= e($u); ?>"
-                  class="thumb <?= $i === 0 ? 'active' : ''; ?>"
+                  class="thumb <?= $i === 0 ? 'active' : ''; ?> js-thumb"
                   data-index="<?= (int) $i; ?>"
                   alt="ตัวอย่างรูปที่ <?= (int) ($i + 1); ?>"
                   loading="lazy"
@@ -297,22 +304,8 @@ $descText = (string) ($item['description'] ?? '');
           <div id="specsBox">
             <div class="spec-item">
               <span class="spec-label">📐 ขนาดพื้นที่:</span>
-              <span class="spec-value">
-                <?= e(($item['area'] ?? '') !== '' ? (string)$item['area'] : 'ไม่ระบุ'); ?>
-              </span>
+              <span class="spec-value"><?= e($areaSizeLabel); ?></span>
             </div>
-            <?php if (!empty($item['soil_type'])): ?>
-              <div class="spec-item">
-                <span class="spec-label">🌱 ประเภทดิน:</span>
-                <span class="spec-value"><?= e((string)$item['soil_type']); ?></span>
-              </div>
-            <?php endif; ?>
-            <?php if (!empty($item['irrigation'])): ?>
-              <div class="spec-item">
-                <span class="spec-label">💧 ระบบน้ำ:</span>
-                <span class="spec-value"><?= e((string)$item['irrigation']); ?></span>
-              </div>
-            <?php endif; ?>
           </div>
 
           <div id="statusBox" class="status-row">
@@ -349,7 +342,7 @@ $descText = (string) ($item['description'] ?? '');
             <?php elseif ($currentStatus === 'available'): ?>
 
               <?php if ($loggedInUser !== null): ?>
-                <button type="button" class="btn-book" onclick="showBookingForm()">📝 จองพื้นที่เช่า</button>
+                <button type="button" class="btn-book js-show-booking">📝 จองพื้นที่เช่า</button>
               <?php else: ?>
                 <a href="?page=signin" class="btn-book">🔐 เข้าสู่ระบบเพื่อจอง</a>
               <?php endif; ?>
@@ -357,15 +350,15 @@ $descText = (string) ($item['description'] ?? '');
             <?php else: ?>
 
               <button type="button" class="btn-book" disabled style="opacity: 0.5; cursor: not-allowed;">
-                <?= $currentStatus === 'booked' ? 'ติดจองแล้ว' : 'ขายแล้ว'; ?>
+                <?= $currentStatus === 'booked' ? 'ติดจองแล้ว' : 'ปิดให้เช่า'; ?>
               </button>
 
             <?php endif; ?>
           </div>
 
           <div id="bookingActions" style="display: none;">
-            <button type="button" class="btn-confirm" onclick="confirmBooking()">ยืนยันการจอง</button>
-            <button type="button" class="btn-cancel" onclick="cancelBooking()">❌ ยกเลิก</button>
+            <button type="button" class="btn-confirm js-confirm-booking">ยืนยันการจอง</button>
+            <button type="button" class="btn-cancel js-cancel-booking">❌ ยกเลิก</button>
           </div>
 
         </div>
@@ -373,241 +366,3 @@ $descText = (string) ($item['description'] ?? '');
     </div>
   </div>
 </div>
-
-<script>
-  // กัน XSS เวลาโยน JSON เข้า JS
-  const images = <?= json_encode(
-                    $imageUrls,
-                    JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
-                  ); ?>;
-
-  const propertyId = <?= (int) $id; ?>;
-  const csrfToken = <?= json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-
-  let currentImageIndex = 0;
-  let datePickerInitialized = false;
-
-  document.addEventListener('DOMContentLoaded', () => {
-    // lazy load ให้ทั้ง main + thumbs (ถ้ามี util ก็ใช้ util)
-    if (typeof initLazyLoading === 'function') {
-      initLazyLoading();
-    } else {
-      document.querySelectorAll('img[data-src]').forEach((img) => {
-        img.src = img.getAttribute('data-src');
-        img.removeAttribute('data-src');
-      });
-    }
-
-    const mainImg = document.getElementById('mainImage');
-    if (mainImg) mainImg.addEventListener('click', () => changeImage(1));
-
-    const thumbs = document.querySelectorAll('#thumbs .thumb');
-    thumbs.forEach((t) => {
-      t.addEventListener('click', () => {
-        const idx = parseInt(t.getAttribute('data-index'), 10);
-        if (Number.isNaN(idx)) return;
-        currentImageIndex = idx;
-        updateMainImage();
-      });
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft') changeImage(-1);
-      if (e.key === 'ArrowRight') changeImage(1);
-    });
-  });
-
-  function updateMainImage() {
-    const main = document.getElementById('mainImage');
-    const counter = document.getElementById('imageCounter');
-    if (!main || !images || !images.length) return;
-
-    main.src = images[currentImageIndex];
-
-    if (counter) {
-      counter.textContent = (currentImageIndex + 1) + ' / ' + images.length;
-    }
-    updateThumbActive();
-  }
-
-  function changeImage(direction) {
-    if (!images || !images.length) return;
-    currentImageIndex += direction;
-    if (currentImageIndex >= images.length) currentImageIndex = 0;
-    if (currentImageIndex < 0) currentImageIndex = images.length - 1;
-    updateMainImage();
-  }
-
-  function updateThumbActive() {
-    const thumbs = document.querySelectorAll('#thumbs .thumb');
-    thumbs.forEach((t, i) => {
-      t.classList.toggle('active', i === currentImageIndex);
-    });
-  }
-
-  /* ---------- ขั้นตอนจอง ---------- */
-
-  function showBookingForm() {
-    const boxTitle = document.getElementById('boxTitle');
-    const userInfo = document.getElementById('userBookingInfo');
-    const specsBox = document.getElementById('specsBox');
-    const descBox = document.getElementById('descriptionBox');
-    const dateSection = document.getElementById('dateSection');
-    const statusBox = document.getElementById('statusBox');
-    const normalButtons = document.getElementById('normalButtons');
-    const bookingActions = document.getElementById('bookingActions');
-
-    if (!boxTitle) return;
-
-    boxTitle.textContent = 'จองพื้นที่การเกษตร';
-
-    if (userInfo) userInfo.style.display = 'block';
-    if (specsBox) specsBox.style.display = 'none';
-    if (descBox) descBox.style.display = 'none';
-    if (dateSection) dateSection.style.display = 'block';
-    if (statusBox) statusBox.style.display = 'none';
-    if (normalButtons) normalButtons.style.display = 'none';
-    if (bookingActions) bookingActions.style.display = 'flex';
-
-    initializeDatePicker();
-  }
-
-  function initializeDatePicker() {
-    if (datePickerInitialized) {
-      updateDaysInMonth();
-      updateDatePreview();
-      return;
-    }
-    datePickerInitialized = true;
-
-    const daySelect = document.getElementById('daySelect');
-    const monthSelect = document.getElementById('monthSelect');
-    const yearSelect = document.getElementById('yearSelect');
-    if (!daySelect || !monthSelect || !yearSelect) return;
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    daySelect.value = String(tomorrow.getDate());
-    monthSelect.value = String(tomorrow.getMonth());
-    yearSelect.value = String(tomorrow.getFullYear());
-
-    daySelect.addEventListener('change', updateDatePreview);
-    monthSelect.addEventListener('change', () => {
-      updateDaysInMonth();
-      updateDatePreview();
-    });
-    yearSelect.addEventListener('change', () => {
-      updateDaysInMonth();
-      updateDatePreview();
-    });
-
-    updateDaysInMonth();
-    updateDatePreview();
-  }
-
-  function updateDaysInMonth() {
-    const daySelect = document.getElementById('daySelect');
-    const monthSelect = document.getElementById('monthSelect');
-    const yearSelect = document.getElementById('yearSelect');
-    if (!daySelect || !monthSelect || !yearSelect) return;
-
-    const month = parseInt(monthSelect.value, 10);
-    const year = parseInt(yearSelect.value, 10);
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const currentDay = parseInt(daySelect.value, 10) || 1;
-
-    daySelect.innerHTML = '';
-    for (let d = 1; d <= daysInMonth; d++) {
-      const option = document.createElement('option');
-      option.value = String(d);
-      option.textContent = String(d);
-      daySelect.appendChild(option);
-    }
-    daySelect.value = String(currentDay <= daysInMonth ? currentDay : daysInMonth);
-  }
-
-  function updateDatePreview() {
-    const daySelect = document.getElementById('daySelect');
-    const monthSelect = document.getElementById('monthSelect');
-    const yearSelect = document.getElementById('yearSelect');
-    const preview = document.getElementById('datePreview');
-    if (!daySelect || !monthSelect || !yearSelect || !preview) return;
-
-    const day = parseInt(daySelect.value, 10);
-    const monthIndex = parseInt(monthSelect.value, 10);
-    const year = parseInt(yearSelect.value, 10);
-
-    const thaiMonths = [
-      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-    ];
-
-    const selectedDate = new Date(year, monthIndex, day);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    preview.style.display = 'block';
-
-    if (selectedDate <= today) {
-      preview.innerHTML = '<span class="error-text">กรุณาเลือกวันที่ถัดจากวันนี้อย่างน้อย 1 วัน</span>';
-      return;
-    }
-
-    const buddhistYear = year + 543;
-    const dateStr = day + ' ' + thaiMonths[monthIndex] + ' ' + buddhistYear;
-
-    preview.innerHTML = '<span class="preview-text">คุณเลือกวันที่ ' + dateStr + '</span>';
-  }
-
-  function confirmBooking() {
-    const dayEl = document.getElementById('daySelect');
-    const monthEl = document.getElementById('monthSelect');
-    const yearEl = document.getElementById('yearSelect');
-
-    if (!dayEl || !monthEl || !yearEl) return;
-
-    const day = dayEl.value;
-    const month = monthEl.value;
-    const year = yearEl.value;
-
-    if (!day || !month || !year) return;
-
-    const thaiMonths = [
-      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-    ];
-    const buddhistYear = parseInt(year, 10) + 543;
-    const dateStr = day + ' ' + thaiMonths[parseInt(month, 10)] + ' ' + buddhistYear;
-
-    if (!confirm('คุณต้องการจองพื้นที่นี้และนัดหมายวันที่ ' + dateStr + ' ใช่หรือไม่?')) return;
-
-    // แนบ csrf ไปด้วย (หน้า payment ควร verify_csrf())
-    window.location.href =
-      '?page=payment&id=' + encodeURIComponent(propertyId) +
-      '&day=' + encodeURIComponent(day) +
-      '&month=' + encodeURIComponent(month) +
-      '&year=' + encodeURIComponent(year) +
-      '&csrf=' + encodeURIComponent(csrfToken);
-  }
-
-  function cancelBooking() {
-    const boxTitle = document.getElementById('boxTitle');
-    const userInfo = document.getElementById('userBookingInfo');
-    const specsBox = document.getElementById('specsBox');
-    const descBox = document.getElementById('descriptionBox');
-    const dateSection = document.getElementById('dateSection');
-    const statusBox = document.getElementById('statusBox');
-    const normalButtons = document.getElementById('normalButtons');
-    const bookingActions = document.getElementById('bookingActions');
-
-    if (boxTitle) boxTitle.textContent = 'ข้อมูลพื้นที่';
-    if (userInfo) userInfo.style.display = 'none';
-    if (specsBox) specsBox.style.display = 'block';
-    if (descBox) descBox.style.display = 'block';
-    if (dateSection) dateSection.style.display = 'none';
-    if (statusBox) statusBox.style.display = 'flex';
-    if (normalButtons) normalButtons.style.display = 'block';
-    if (bookingActions) bookingActions.style.display = 'none';
-  }
-</script>
