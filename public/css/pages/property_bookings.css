@@ -299,6 +299,36 @@
   font-style: italic;
 }
 
+/* Slip Display */
+.booking-slip {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+}
+
+.slip-label {
+  font-size: 0.875rem;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+  display: block;
+}
+
+.slip-thumbnail {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.slip-thumbnail:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+  transform: scale(1.02);
+}
+
 /* Slip Section */
 .slip-section {
   background: var(--bg-gray);
@@ -399,7 +429,7 @@
 
 .btn-action.approve {
   background: var(--gradient-primary);
-  color: var(--bg-white);
+  color: var(--text-black);
   box-shadow: var(--shadow-sm);
 }
 
@@ -445,9 +475,23 @@
   max-height: 90%;
   background: var(--bg-white);
   border-radius: var(--radius-md);
-  padding: var(--spacing-sm);
+  overflow: auto;
   box-shadow: var(--shadow-lg);
   cursor: default;
+  color: var(--text-primary);
+}
+
+.modal-header {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  background: var(--bg-white);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
   color: var(--text-primary);
 }
 
@@ -456,30 +500,42 @@
   max-height: 80vh;
   display: block;
   border-radius: var(--radius-sm);
+  padding: var(--spacing-md);
+  padding-top: 0;
+  width: 100%;
+  height: auto;
+  box-sizing: border-box;
 }
 
 .modal-close {
   position: absolute;
-  top: -40px;
-  right: 0;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
   background: var(--bg-white);
   color: var(--text-primary);
   border: none;
   border-radius: 50%;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: var(--transition-fast);
   box-shadow: var(--shadow-md);
+  z-index: 10;
+  padding: 0;
 }
 
 .modal-close:hover {
   background: var(--status-sold-text);
   color: var(--bg-white);
   transform: rotate(90deg);
+}
+
+.modal-close svg {
+  width: 24px;
+  height: 24px;
 }
 
 /* Responsive */

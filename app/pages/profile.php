@@ -56,15 +56,6 @@ if ($success === 'profile') {
 $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 
 if ($method === 'POST') {
-  // CSRF required for any POST in this page
-  try {
-    csrf_require();
-  } catch (Throwable $e) {
-    app_log('profile_csrf_error', ['error' => $e->getMessage()]);
-    flash('error', 'คำขอไม่ถูกต้อง (CSRF)');
-    redirect('?page=profile');
-  }
-
   // ---------- Update profile ----------
   if (isset($_POST['update_profile'])) {
     $fullName = trim((string)($_POST['full_name'] ?? ''));
@@ -96,17 +87,25 @@ if ($method === 'POST') {
     }
 
     try {
-      Database::execute(
-        'UPDATE users SET full_name = ?, address = ?, phone = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
-        [$fullName, $address, $phone !== '' ? $phone : null, $userId]
-      );
+      Database::transaction(function () use ($userId, $fullName, $address, $phone) {
+        Database::execute(
+          'UPDATE users SET full_name = ?, address = ?, phone = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+          [$fullName, $address, $phone !== '' ? $phone : null, $userId]
+        );
+      });
 
       // keep session in sync (เผื่อ navbar / avatar / ฯลฯ)
       $_SESSION['user']['full_name'] = $fullName;
 
+      app_log('profile_update_success', ['user_id' => $userId, 'fields' => ['full_name', 'phone', 'address']]);
+
       redirect('?page=profile&success=profile');
     } catch (Throwable $e) {
-      app_log('profile_update_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
+      app_log('profile_update_error', [
+        'user_id' => $userId,
+        'full_name' => $fullName,
+        'error' => $e->getMessage(),
+      ]);
       flash('error', 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
       redirect('?page=profile');
     }
@@ -141,6 +140,7 @@ if ($method === 'POST') {
     try {
       $row = Database::fetchOne('SELECT password FROM users WHERE user_id = ? LIMIT 1', [$userId]);
       if (!$row || !password_verify($current, (string)$row['password'])) {
+        app_log('profile_password_mismatch', ['user_id' => $userId]);
         flash('error', 'รหัสผ่านปัจจุบันไม่ถูกต้อง');
         redirect('?page=profile');
       }
@@ -150,14 +150,21 @@ if ($method === 'POST') {
         throw new RuntimeException('password_hash_failed');
       }
 
-      Database::execute(
-        'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
-        [$hash, $userId]
-      );
+      Database::transaction(function () use ($userId, $hash) {
+        Database::execute(
+          'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+          [$hash, $userId]
+        );
+      });
+
+      app_log('profile_password_change_success', ['user_id' => $userId]);
 
       redirect('?page=profile&success=password');
     } catch (Throwable $e) {
-      app_log('profile_change_password_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
+      app_log('profile_change_password_error', [
+        'user_id' => $userId,
+        'error' => $e->getMessage(),
+      ]);
       flash('error', 'เปลี่ยนรหัสผ่านไม่สำเร็จ ลองใหม่อีกครั้ง');
       redirect('?page=profile');
     }
@@ -244,12 +251,11 @@ $createdAtText = $createdAt ? date('d/m/Y', strtotime($createdAt)) : '-';
               </div>
             </div>
 
-            <button type="button" class="btn-edit" id="editProfileBtn">แก้ไขข้อมูล</button>
+            <button type="button" class="btn-edit" id="editProfileBtn" aria-label="แก้ไขข้อมูล">แก้ไขข้อมูล</button>
           </div>
 
           <!-- EDIT MODE -->
           <form method="POST" id="profileForm" class="profile-edit-form hidden" novalidate>
-            <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
             <input type="hidden" name="update_profile" value="1">
 
             <div class="info-grid">
@@ -294,7 +300,6 @@ $createdAtText = $createdAt ? date('d/m/Y', strtotime($createdAt)) : '-';
           <h3>เปลี่ยนรหัสผ่าน</h3>
 
           <form method="POST" class="password-form" novalidate>
-            <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
             <input type="hidden" name="change_password" value="1">
 
             <div class="form-group">

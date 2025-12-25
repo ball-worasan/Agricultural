@@ -195,6 +195,11 @@
   color: #78350f;
 }
 
+.status-reserved {
+  background: rgba(56, 189, 248, 0.9); /* sky-400 */
+  color: #0c4a6e; /* sky-900 */
+}
+
 .status-sold {
   background: rgba(239, 68, 68, 0.9);
   color: white;

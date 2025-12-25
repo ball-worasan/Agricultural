@@ -125,6 +125,9 @@
   overflow: hidden;
   background: var(--bg-gray);
   min-height: 260px;
+  max-height: 75vh;
+  aspect-ratio: 4 / 3;
+  max-width: 95vw;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -133,7 +136,9 @@
 .main-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  max-height: 75vh;
+  object-fit: contain;
+  object-position: center;
   display: block;
 }
 
@@ -186,10 +191,15 @@
 /* Thumbnails */
 .thumbs {
   display: flex;
+  flex-wrap: wrap; /* ← ให้ห่อบนทุกขนาด */
   gap: 0.5rem;
   margin-top: 0.65rem;
-  padding-bottom: 0.2rem;
-  overflow-x: auto;
+  padding: 0.2rem 0 0.4rem;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: visible; /* ← ลบ scroll นอน */
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
 }
 
 .thumb {
@@ -197,22 +207,28 @@
   height: 48px;
   border-radius: 0.5rem;
   object-fit: cover;
+  object-position: center;
   cursor: pointer;
   border: 2px solid transparent;
   opacity: 0.7;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   transition: opacity var(--transition-fast),
     border-color var(--transition-fast), transform var(--transition-fast);
 }
 
-.thumb:hover {
-  opacity: 1;
-  transform: translateY(-1px);
+/* ตัดสินใจขนาด thumbnail ตามหน้าจอ */
+@media (max-width: 480px) {
+  .thumb {
+    width: 56px;
+    height: 42px;
+  }
 }
 
-.thumb.active {
-  opacity: 1;
-  border-color: var(--primary-color);
+@media (max-width: 768px) {
+  .thumb {
+    width: 60px;
+    height: 45px;
+  }
 }
 
 /* =========================================

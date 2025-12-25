@@ -1,40 +1,53 @@
 (() => {
   "use strict";
 
-  const view = document.getElementById("profileView");
-  const form = document.getElementById("profileForm");
+  // ================================
+  // DOM Cache & State
+  // ================================
+  const profileView = document.getElementById("profileView");
+  const profileForm = document.getElementById("profileForm");
   const editBtn = document.getElementById("editProfileBtn");
   const cancelBtn = document.getElementById("cancelEditBtn");
+  const passwordForm = document.querySelector(".password-form");
+  const phoneInput = document.getElementById("phone");
 
-  function showEdit() {
-    if (!view || !form) return;
-    view.classList.add("hidden");
-    form.classList.remove("hidden");
+  // ================================
+  // Profile Edit Mode Toggle
+  // ================================
+  function toggleEditMode(isEdit) {
+    if (!profileView || !profileForm) return;
+    if (isEdit) {
+      profileView.classList.add("hidden");
+      profileForm.classList.remove("hidden");
+    } else {
+      profileForm.classList.add("hidden");
+      profileView.classList.remove("hidden");
+    }
   }
 
-  function cancelEdit() {
-    if (!view || !form) return;
-    form.classList.add("hidden");
-    view.classList.remove("hidden");
-  }
-
-  if (editBtn)
+  if (editBtn) {
     editBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      showEdit();
+      toggleEditMode(true);
     });
-  if (cancelBtn)
+  }
+
+  if (cancelBtn) {
     cancelBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      cancelEdit();
+      toggleEditMode(false);
     });
+  }
 
-  // -------- Profile form validation --------
-  if (form) {
-    form.addEventListener("submit", (e) => {
+  // ================================
+  // Profile Form Validation
+  // ================================
+  if (profileForm) {
+    profileForm.addEventListener("submit", (e) => {
       const fullName =
-        form.querySelector('[name="full_name"]')?.value.trim() || "";
-      const phone = form.querySelector('[name="phone"]')?.value.trim() || "";
+        profileForm.querySelector('[name="full_name"]')?.value.trim() || "";
+      const phone =
+        profileForm.querySelector('[name="phone"]')?.value.trim() || "";
 
       if (!fullName) {
         e.preventDefault();
@@ -50,8 +63,9 @@
     });
   }
 
-  // -------- Password form validation --------
-  const passwordForm = document.querySelector(".password-form");
+  // ================================
+  // Password Form Validation
+  // ================================
   if (passwordForm) {
     passwordForm.addEventListener("submit", (e) => {
       const currentPassword =
@@ -88,28 +102,32 @@
     });
   }
 
-  // -------- Toggle password --------
-  document.querySelectorAll(".toggle-password").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const targetId = btn.getAttribute("data-target");
-      const input = targetId ? document.getElementById(targetId) : null;
-      if (!input) return;
+  // ================================
+  // Password Toggle (Event Delegation)
+  // ================================
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".toggle-password");
+    if (!btn) return;
 
-      const eye = btn.querySelector(".eye-icon");
-      const eyeOff = btn.querySelector(".eye-off-icon");
+    const targetId = btn.getAttribute("data-target");
+    const input = targetId ? document.getElementById(targetId) : null;
+    if (!input) return;
 
-      const isPassword = input.type === "password";
-      input.type = isPassword ? "text" : "password";
+    const eye = btn.querySelector(".eye-icon");
+    const eyeOff = btn.querySelector(".eye-off-icon");
 
-      if (eye && eyeOff) {
-        eye.style.display = isPassword ? "none" : "inline";
-        eyeOff.style.display = isPassword ? "inline" : "none";
-      }
-    });
+    const isPassword = input.type === "password";
+    input.type = isPassword ? "text" : "password";
+
+    if (eye && eyeOff) {
+      eye.style.display = isPassword ? "none" : "inline";
+      eyeOff.style.display = isPassword ? "inline" : "none";
+    }
   });
 
-  // -------- Phone digits only --------
-  const phoneInput = document.getElementById("phone");
+  // ================================
+  // Phone Input: Digits Only
+  // ================================
   if (phoneInput) {
     phoneInput.addEventListener("input", () => {
       phoneInput.value = phoneInput.value.replace(/[^0-9]/g, "").slice(0, 10);

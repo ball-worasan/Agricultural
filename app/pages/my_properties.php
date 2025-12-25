@@ -52,6 +52,12 @@ if ($user === null) {
   redirect('?page=signin');
 }
 
+// แอดมินไม่มีการจัดการพื้นที่ส่วนตัว (ใช้ admin_dashboard แทน)
+if ((int) ($user['role'] ?? 0) === ROLE_ADMIN) {
+  flash('error', 'ผู้ดูแลระบบจัดการพื้นที่ผ่านแดชบอร์ดแอดมิน');
+  redirect('?page=admin_dashboard');
+}
+
 $userId = (int) ($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('my_properties_invalid_user', ['session_user' => $user]);
@@ -114,18 +120,20 @@ try {
 // mapping สถานะ → text / class (กันกรณี status แปลก ๆ)
 $statusText = [
   'available'   => 'พร้อมให้เช่า',
+  'reserved'    => 'รอตรวจสอบสลิป',
   'booked'      => 'ติดจอง',
   'unavailable' => 'ปิดให้เช่า',
 ];
 
 $statusClass = [
   'available'   => 'status-available',
+  'reserved'    => 'status-reserved',
   'booked'      => 'status-booked',
   'unavailable' => 'status-unavailable',
 ];
 
 ?>
-<div class="my-properties-container" data-csrf="<?= e(csrf_token()); ?>">
+<div class="my-properties-container">
   <div class="page-header">
     <div class="header-left">
       <h1>พื้นที่ของฉัน</h1>

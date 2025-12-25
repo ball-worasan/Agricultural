@@ -2,14 +2,21 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/NotificationService.php';
-
 /**
  * Contract Service
  * จัดการสัญญาเช่า
  */
 class ContractService
 {
+  /** @return array<string,mixed>|null */
+  private static function fetchContractForApproval(int $contractId): ?array
+  {
+    return Database::fetchOne(
+      'SELECT id, user_id, contract_number, status FROM contracts WHERE id = ?',
+      [$contractId]
+    );
+  }
+
   /**
    * อนุมัติสัญญา
    */
@@ -17,23 +24,15 @@ class ContractService
   {
     try {
       Database::transaction(function () use ($contractId, $adminId) {
-        $contract = Database::fetchOne(
-          'SELECT id, user_id, contract_number, status FROM contracts WHERE id = ?',
-          [$contractId]
-        );
+        $contract = self::fetchContractForApproval($contractId);
 
-        if (!$contract || (string)$contract['status'] !== 'waiting_signature') {
+        if (!$contract || (string) $contract['status'] !== 'waiting_signature') {
           throw new RuntimeException('Contract not found or invalid status');
         }
 
         Database::execute(
           'UPDATE contracts SET status = "active", signed_at = NOW() WHERE id = ?',
           [$contractId]
-        );
-
-        NotificationService::notifyContractApproved(
-          (int)$contract['user_id'],
-          (string)$contract['contract_number']
         );
       });
 
@@ -55,14 +54,16 @@ class ContractService
   {
     try {
       $contract = Database::fetchOne(
-        'SELECT c.*, u.full_name AS tenant_name, u.phone AS tenant_phone,
-                        o.full_name AS owner_name, o.phone AS owner_phone,
-                        ra.area_name, ra.area_size
-                 FROM contract c
-                 JOIN users u ON c.booking_id = u.user_id
-                 JOIN users o ON ra.user_id = o.user_id
-                 JOIN rental_area ra ON c.booking_id = ra.area_id
-                 WHERE c.contract_id = ?',
+        'SELECT c.id AS contract_id, c.booking_id, c.contract_file,
+                tenant.full_name AS tenant_name, tenant.phone AS tenant_phone,
+                owner.full_name AS owner_name, owner.phone AS owner_phone,
+                ra.area_name, ra.area_size
+         FROM contracts c
+         JOIN booking_deposit bd ON c.booking_id = bd.booking_id
+         JOIN rental_area ra ON bd.area_id = ra.area_id
+         JOIN users tenant ON bd.user_id = tenant.user_id
+         JOIN users owner ON ra.user_id = owner.user_id
+         WHERE c.id = ?',
         [$contractId]
       );
 
@@ -76,7 +77,7 @@ class ContractService
 
       // อัปเดต path ในฐานข้อมูล
       Database::execute(
-        'UPDATE contracts SET pdf_file_path = ? WHERE id = ?',
+        'UPDATE contracts SET contract_file = ? WHERE id = ?',
         [$pdfPath, $contractId]
       );
 
@@ -96,7 +97,11 @@ class ContractService
   public static function downloadPDF(int $contractId, int $userId): ?string
   {
     $contract = Database::fetchOne(
-      'SELECT pdf_file_path, user_id, owner_id FROM contracts WHERE id = ?',
+      'SELECT c.contract_file, bd.user_id AS tenant_id, ra.user_id AS owner_id
+       FROM contracts c
+       JOIN booking_deposit bd ON c.booking_id = bd.booking_id
+       JOIN rental_area ra ON bd.area_id = ra.area_id
+       WHERE c.id = ?',
       [$contractId]
     );
 
@@ -104,17 +109,17 @@ class ContractService
       return null;
     }
 
-    // ตรวจสอบสิทธิ์
-    if ((int)$contract['user_id'] !== $userId && (int)$contract['owner_id'] !== $userId) {
+    // ตรวจสอบสิทธิ์: ผู้เช่า หรือ เจ้าของพื้นที่เท่านั้น
+    if ((int) $contract['tenant_id'] !== $userId && (int) $contract['owner_id'] !== $userId) {
       return null;
     }
 
-    $pdfPath = $contract['pdf_file_path'];
-    if (empty($pdfPath)) {
+    $pdfPath = (string) ($contract['contract_file'] ?? '');
+    if ($pdfPath === '') {
       // สร้าง PDF ถ้ายังไม่มี
-      $pdfPath = self::generatePDF($contractId);
+      $pdfPath = (string) (self::generatePDF($contractId) ?? '');
     }
 
-    return $pdfPath;
+    return $pdfPath !== '' ? $pdfPath : null;
   }
 }

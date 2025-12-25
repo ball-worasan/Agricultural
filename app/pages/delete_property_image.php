@@ -41,10 +41,23 @@ try {
 }
 
 // ----------------------------
+// Response helpers (AJAX-aware, but always JSON here)
+// ----------------------------
+$isAjax = (static function (): bool {
+  $xrw = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''));
+  $accept = (string)($_SERVER['HTTP_ACCEPT'] ?? '');
+  return $xrw === 'xmlhttprequest' || stripos($accept, 'application/json') !== false;
+})();
+
+$respond = static function (int $status, array $payload): void {
+  json_response($payload, $status);
+};
+
+// ----------------------------
 // Validate request method
 // ----------------------------
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-  json_response(['success' => false, 'message' => 'คำขอไม่ถูกต้อง (method ไม่รองรับ)'], 405);
+  $respond(405, ['success' => false, 'message' => 'คำขอไม่ถูกต้อง (method ไม่รองรับ)']);
   return;
 }
 
@@ -53,25 +66,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 // ----------------------------
 $user = current_user();
 if ($user === null) {
-  json_response(['success' => false, 'message' => 'กรุณาเข้าสู่ระบบ'], 401);
+  $respond(401, ['success' => false, 'message' => 'กรุณาเข้าสู่ระบบ']);
   return;
 }
 
 $userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('delete_property_image_invalid_user', ['session_user' => $user]);
-  json_response(['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง'], 401);
-  return;
-}
-
-// ----------------------------
-// CSRF protection
-// ----------------------------
-try {
-  csrf_require();
-} catch (Throwable $e) {
-  app_log('delete_property_image_csrf_error', ['error' => $e->getMessage()]);
-  json_response(['success' => false, 'message' => 'CSRF ไม่ถูกต้อง'], 403);
+  $respond(401, ['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง']);
   return;
 }
 
@@ -80,7 +82,7 @@ try {
 // ----------------------------
 $action = (string)($_POST['action'] ?? '');
 if ($action !== 'delete_image') {
-  json_response(['success' => false, 'message' => 'คำขอไม่ถูกต้อง'], 400);
+  $respond(400, ['success' => false, 'message' => 'คำขอไม่ถูกต้อง']);
   return;
 }
 
@@ -88,7 +90,7 @@ $imageId = (int)($_POST['image_id'] ?? 0);
 $areaId  = (int)($_POST['area_id'] ?? 0);
 
 if ($imageId <= 0 || $areaId <= 0) {
-  json_response(['success' => false, 'message' => 'ข้อมูลไม่ถูกต้อง'], 400);
+  $respond(400, ['success' => false, 'message' => 'ข้อมูลไม่ถูกต้อง']);
   return;
 }
 
@@ -98,7 +100,7 @@ try {
     [$areaId, $userId]
   );
   if (!$area) {
-    json_response(['success' => false, 'message' => 'ไม่มีสิทธิ์ลบรูปภาพนี้'], 403);
+    $respond(403, ['success' => false, 'message' => 'ไม่มีสิทธิ์ลบรูปภาพนี้']);
     return;
   }
 
@@ -107,7 +109,7 @@ try {
     [$imageId, $areaId]
   );
   if (!$image) {
-    json_response(['success' => false, 'message' => 'ไม่พบรูปภาพ'], 404);
+    $respond(404, ['success' => false, 'message' => 'ไม่พบรูปภาพ']);
     return;
   }
 
@@ -121,7 +123,8 @@ try {
   $allowedPrefix = '/storage/uploads/areas/';
   $fileDeleted = true;
   if ($relativePath !== '' && strpos($relativePath, $allowedPrefix) === 0) {
-    $filePath = $projectRoot . $relativePath;
+    // ใช้ public root ที่ถูกต้อง
+    $filePath = $projectRoot . '/public' . $relativePath;
     if (is_file($filePath)) {
       if (!@unlink($filePath)) {
         $fileDeleted = false;
@@ -134,8 +137,14 @@ try {
   // ลบ record จากฐานข้อมูล
   Database::execute('DELETE FROM area_image WHERE image_id = ?', [$imageId]);
 
-  json_response(['success' => true, 'message' => 'ลบรูปภาพสำเร็จ']);
+  $respond(200, [
+    'success' => true,
+    'message' => 'ลบรูปภาพสำเร็จ',
+    'image_id' => $imageId,
+    'area_id' => $areaId,
+    'file_deleted' => $fileDeleted,
+  ]);
 } catch (Throwable $e) {
   app_log('delete_property_image_error', ['area_id' => $areaId, 'image_id' => $imageId, 'error' => $e->getMessage()]);
-  json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาดในการลบรูปภาพ กรุณาลองใหม่อีกครั้ง'], 500);
+  $respond(500, ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการลบรูปภาพ กรุณาลองใหม่อีกครั้ง']);
 }

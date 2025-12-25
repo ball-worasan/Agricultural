@@ -4,13 +4,31 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/config/Database.php';
 
-if (PHP_SAPI !== 'cli') {
-  // ถ้าถูกเรียกผ่านเว็บ: ปิดใน production
-  $env = strtolower((string)(Database::env('APP_ENV', 'local') ?? 'local'));
-  if (in_array($env, ['prod', 'production'], true)) {
-    http_response_code(404);
-    exit;
-  }
+function envString(string $key, string $default = ''): string
+{
+  $val = Database::env($key, $default);
+  return $val !== null ? (string) $val : $default;
+}
+
+function envBool(string $key, bool $default = false): bool
+{
+  $val = Database::env($key, $default ? 'true' : 'false');
+  $normalized = filter_var($val, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+  return $normalized ?? $default;
+}
+
+function isProdEnv(string $env): bool
+{
+  return in_array(strtolower($env), ['prod', 'production'], true);
+}
+
+$appEnv = envString('APP_ENV', 'local');
+$isDebug = envBool('APP_DEBUG', false);
+
+if (PHP_SAPI !== 'cli' && isProdEnv($appEnv)) {
+  // ถ้าเรียกผ่านเว็บใน production ให้ปิด
+  http_response_code(404);
+  exit;
 }
 
 /**
@@ -169,10 +187,6 @@ const EXIT_PARTIAL = 2;
 
 try {
   $schemaPath = __DIR__ . '/schema.sql';
-
-  $appEnv   = Database::env('APP_ENV', 'local');
-  $appDebug = Database::env('APP_DEBUG', 'false');
-  $isDebug  = in_array(strtolower((string) $appDebug), ['1', 'true', 'yes', 'on'], true);
 
   out('==============================================');
   out('  ตั้งค่าฐานข้อมูลสำหรับสิริณัฐ · พื้นที่เกษตรให้เช่า');
@@ -341,9 +355,6 @@ try {
   exit(EXIT_PARTIAL);
 } catch (Throwable $e) {
   out('❌ เกิดข้อผิดพลาดรุนแรง: ' . $e->getMessage());
-
-  $appDebug = Database::env('APP_DEBUG', 'false');
-  $isDebug  = in_array(strtolower((string) $appDebug), ['1', 'true', 'yes', 'on'], true);
 
   if ($isDebug) {
     out('--- DEBUG TRACE ---');

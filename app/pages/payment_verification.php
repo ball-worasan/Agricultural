@@ -83,8 +83,6 @@ $adminId = (int) ($user['id'] ?? 0);
 
 // POST: อนุมัติ/ปฏิเสธการชำระเงิน
 if ($method === 'POST' && isset($_POST['verify_payment'])) {
-  csrf_require();
-
   $paymentId = (int) ($_POST['payment_id'] ?? 0);
   $approved = isset($_POST['approved']) && $_POST['approved'] === '1';
   $reason = trim((string) ($_POST['reason'] ?? ''));
@@ -162,14 +160,12 @@ try {
           <div class="payment-actions">
             <form method="POST" class="verify-form" onsubmit="return verifyPayment(event, <?= (int)$payment['id']; ?>, true)">
               <input type="hidden" name="verify_payment" value="1">
-              <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
               <input type="hidden" name="payment_id" value="<?= (int)$payment['id']; ?>">
               <input type="hidden" name="approved" value="1">
               <button type="submit" class="btn-approve">✓ อนุมัติ</button>
             </form>
             <form method="POST" class="verify-form" onsubmit="return verifyPayment(event, <?= (int)$payment['id']; ?>, false)">
               <input type="hidden" name="verify_payment" value="1">
-              <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
               <input type="hidden" name="payment_id" value="<?= (int)$payment['id']; ?>">
               <input type="hidden" name="approved" value="0">
               <input type="text" name="reason" placeholder="เหตุผลในการปฏิเสธ" required class="reject-reason">

@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/NotificationService.php';
-
 /**
  * Payment Service
  * จัดการการชำระเงินทั้งหมด
@@ -27,10 +25,15 @@ class PaymentService
         }
 
         $status = $approved ? 'verified' : 'rejected';
+        $normalizedReason = $approved ? null : trim((string) $reason);
+
+        if (!$approved && ($normalizedReason === '' || $normalizedReason === null)) {
+          throw new RuntimeException('Reject reason is required');
+        }
 
         Database::execute(
           'UPDATE payments SET payment_status = ?, verified_by = ?, verified_at = NOW(), rejection_reason = ? WHERE id = ?',
-          [$status, $approved ? $adminId : null, $approved ? null : $reason, $paymentId]
+          [$status, $approved ? $adminId : null, $normalizedReason, $paymentId]
         );
 
         // ถ้าอนุมัติ ให้อัปเดต booking status
@@ -39,20 +42,6 @@ class PaymentService
           Database::execute(
             'UPDATE bookings SET payment_status = "deposit_success" WHERE id = ? AND payment_status = "waiting"',
             [$bookingId]
-          );
-
-          // แจ้งเตือนผู้ใช้
-          NotificationService::notifyPaymentVerified(
-            (int)$payment['user_id'],
-            (float)$payment['amount'],
-            true
-          );
-        } else {
-          // แจ้งเตือนผู้ใช้
-          NotificationService::notifyPaymentVerified(
-            (int)$payment['user_id'],
-            (float)$payment['amount'],
-            false
           );
         }
       });
@@ -142,14 +131,6 @@ class PaymentService
           'INSERT INTO payments (booking_id, user_id, property_id, payment_type, amount, payment_status, payment_date, notes, created_at) 
                      VALUES (?, ?, ?, "refund", ?, "pending", CURDATE(), ?, NOW())',
           [$bookingId, $userId, $propertyId, $amount, $reason]
-        );
-
-        NotificationService::create(
-          $userId,
-          'payment',
-          'การคืนเงิน',
-          "มีการคืนเงินจำนวน " . number_format($amount, 2) . " บาท\nเหตุผล: {$reason}",
-          "?page=history"
         );
       });
 

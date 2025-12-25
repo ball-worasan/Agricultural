@@ -2,7 +2,6 @@
   "use strict";
 
   var container = document.querySelector(".add-property-container");
-  var csrfToken = container ? container.dataset.csrf || "" : "";
   var areaId = container ? container.dataset.areaId || "" : "";
 
   var provinceSelect = document.getElementById("province");
@@ -126,45 +125,64 @@
     fileInput.addEventListener("change", handleFileChange);
   }
 
-  function removeExisting(imageId, buttonEl) {
+  async function removeExisting(imageId, buttonEl) {
     if (!imageId) return;
     if (!confirm("คุณต้องการลบรูปภาพนี้ใช่หรือไม่?")) return;
 
-    var formData = new FormData();
-    formData.append("action", "delete_image");
-    formData.append("image_id", String(imageId));
-    formData.append("area_id", String(areaId));
-    formData.append("csrf", csrfToken);
+    // กันกดซ้ำ
+    var prevDisabled = false;
+    if (buttonEl) {
+      prevDisabled = buttonEl.disabled;
+      buttonEl.disabled = true;
+    }
 
-    fetch("?page=delete_property_image", {
-      method: "POST",
-      body: formData,
-      credentials: "same-origin",
-    })
-      .then(function (res) {
-        console.log("Delete response status:", res.status);
-        if (!res.ok) {
-          throw new Error("HTTP " + res.status);
-        }
-        return res.json();
-      })
-      .then(function (data) {
-        console.log("Delete response data:", data);
-        if (!data || data.success !== true) {
-          var msg = data && data.message ? data.message : "ลบรูปภาพไม่สำเร็จ";
-          alert(msg);
-          return;
-        }
-        var item = buttonEl.closest(".existing-image-item");
-        if (item && item.parentNode) {
-          item.parentNode.removeChild(item);
-        }
-        alert("ลบรูปภาพสำเร็จ");
-      })
-      .catch(function (err) {
-        console.error("Delete error:", err);
-        alert("ลบรูปภาพไม่สำเร็จ: " + err.message);
+    try {
+      var formData = new FormData();
+      formData.append("action", "delete_image");
+      formData.append("image_id", String(imageId));
+      formData.append("area_id", String(areaId));
+
+      var res = await fetch("?page=delete_property_image", {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
       });
+
+      var payload = null;
+      var text = await res.text();
+      try {
+        payload = JSON.parse(text);
+      } catch (_) {
+        payload = null;
+      }
+
+      if (!res.ok) {
+        var serverMsg =
+          payload && payload.message ? payload.message : "HTTP " + res.status;
+        throw new Error(serverMsg);
+      }
+
+      if (!payload || payload.success !== true) {
+        var msg =
+          payload && payload.message ? payload.message : "ลบรูปภาพไม่สำเร็จ";
+        alert(msg);
+        return;
+      }
+
+      var item = buttonEl ? buttonEl.closest(".existing-image-item") : null;
+      if (item && item.parentNode) {
+        item.parentNode.removeChild(item);
+      }
+      alert("ลบรูปภาพสำเร็จ");
+    } catch (err) {
+      console.error("Delete error:", err);
+      alert(
+        "ลบรูปภาพไม่สำเร็จ: " +
+          (err && err.message ? err.message : "เกิดข้อผิดพลาด")
+      );
+    } finally {
+      if (buttonEl) buttonEl.disabled = prevDisabled;
+    }
   }
 
   function bindExistingDeletes() {

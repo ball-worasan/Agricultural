@@ -227,15 +227,6 @@ if ($method === 'POST' && isset($_POST['create_contract'])) {
       $rentalPeriodMonths
     );
 
-    // แจ้งเตือนเจ้าของพื้นที่
-    NotificationService::create(
-      $ownerId,
-      'contract',
-      'มีการสร้างสัญญาใหม่',
-      "มีการสร้างสัญญาเลขที่ {$contractNumber} สำหรับพื้นที่: " . ($booking['property_title'] ?? ''),
-      "?page=admin_dashboard"
-    );
-
     app_log('contract_created', [
       'booking_id' => $bookingId,
       'contract_id' => $contractId,

@@ -1,47 +1,69 @@
-(function () {
+(() => {
   "use strict";
 
-  // Preview upload images (max 10, 5MB each)
+  // Constants
+  const MAX_IMAGES = 10;
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+  // State
   const state = {
     selectedFiles: [],
   };
 
+  // DOM cache
+  const els = {
+    imageInput: null,
+    imagePreview: null,
+    provinceSelect: null,
+    districtSelect: null,
+    priceInput: null,
+  };
+
+  function cacheElements() {
+    els.imageInput = document.getElementById("images");
+    els.imagePreview = document.getElementById("imagePreview");
+    els.provinceSelect = document.getElementById("province");
+    els.districtSelect = document.getElementById("district");
+    els.priceInput = document.getElementById("price");
+  }
+
+  // ================================
+  // Image Preview Management
+  // ================================
   function rebuildPreview() {
-    const preview = document.getElementById("imagePreview");
-    if (!preview) return;
-    preview.innerHTML = "";
+    if (!els.imagePreview) return;
+    els.imagePreview.innerHTML = "";
 
     state.selectedFiles.forEach((file, idx) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const div = document.createElement("div");
         div.className = "preview-item";
-        div.innerHTML =
-          '<img src="' +
-          e.target.result +
-          '" alt="Preview">' +
-          '<button type="button" class="remove-image" data-index="' +
-          idx +
-          '">×</button>';
-        preview.appendChild(div);
 
-        const btn = div.querySelector(".remove-image");
-        if (btn) {
-          btn.addEventListener("click", () => {
-            removeImage(idx);
-          });
-        }
+        const img = document.createElement("img");
+        img.src = String(e.target?.result || "");
+        img.alt = "Preview";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "remove-image";
+        btn.textContent = "×";
+        btn.dataset.index = String(idx);
+        btn.addEventListener("click", () => removeImage(idx));
+
+        div.appendChild(img);
+        div.appendChild(btn);
+        els.imagePreview.appendChild(div);
       };
       reader.readAsDataURL(file);
     });
   }
 
   function syncInput() {
-    const input = document.getElementById("images");
-    if (!input) return;
+    if (!els.imageInput) return;
     const dt = new DataTransfer();
     state.selectedFiles.forEach((f) => dt.items.add(f));
-    input.files = dt.files;
+    els.imageInput.files = dt.files;
   }
 
   function removeImage(idx) {
@@ -51,63 +73,62 @@
     syncInput();
   }
 
-  window.previewImages = function (event) {
-    const files = Array.prototype.slice.call(event.target.files || []);
-    const preview = document.getElementById("imagePreview");
-    if (!preview) return;
+  function handleImageChange(event) {
+    const files = Array.from(event.target?.files || []);
+    if (!files.length) return;
 
-    if (state.selectedFiles.length + files.length > 10) {
-      alert("สามารถอัปโหลดรูปภาพได้สูงสุด 10 รูป");
+    if (state.selectedFiles.length + files.length > MAX_IMAGES) {
+      alert(`สามารถอัปโหลดรูปภาพได้สูงสุด ${MAX_IMAGES} รูป`);
       return;
     }
 
-    files.forEach((file) => {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("ไฟล์ " + file.name + " มีขนาดใหญ่เกิน 5MB");
-        return;
+    const validFiles = [];
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`ไฟล์ ${file.name} มีขนาดใหญ่เกิน 5MB`);
+        continue;
       }
-      state.selectedFiles.push(file);
-    });
+      validFiles.push(file);
+    }
 
+    state.selectedFiles.push(...validFiles);
     rebuildPreview();
     syncInput();
-  };
+  }
 
-  window.removeImage = removeImage;
-
-  // Province-District cascade (mobile-safe by rebuilding options)
+  // ================================
+  // Province-District Cascade
+  // ================================
   function setupCascade() {
-    const provinceSelect = document.getElementById("province");
-    const districtSelect = document.getElementById("district");
-    if (!provinceSelect || !districtSelect) return;
+    if (!els.provinceSelect || !els.districtSelect) return;
 
     const initialOptions = Array.from(
-      districtSelect.querySelectorAll("option[data-province-id]")
+      els.districtSelect.querySelectorAll("option[data-province-id]")
     ).map((opt) => ({
       value: opt.value,
-      text: opt.textContent,
-      provinceId: opt.getAttribute("data-province-id"),
+      text: opt.textContent || "",
+      provinceId: opt.getAttribute("data-province-id") || "",
       selected: opt.selected || opt.defaultSelected,
     }));
 
     const updateDistricts = () => {
-      const selectedProvinceId = String(provinceSelect.value || "").trim();
-      const placeholder = districtSelect.querySelector("option[value='']");
+      const selectedProvinceId = String(els.provinceSelect.value || "").trim();
+      const placeholder = els.districtSelect.querySelector("option[value='']");
 
       // Remove all non-placeholder options
-      while (districtSelect.options.length > 1) {
-        districtSelect.remove(1);
+      while (els.districtSelect.options.length > 1) {
+        els.districtSelect.remove(1);
       }
 
-      districtSelect.value = "";
+      els.districtSelect.value = "";
 
       if (!selectedProvinceId) {
-        districtSelect.disabled = true;
+        els.districtSelect.disabled = true;
         if (placeholder) placeholder.textContent = "เลือกจังหวัดก่อน";
         return;
       }
 
-      districtSelect.disabled = false;
+      els.districtSelect.disabled = false;
       if (placeholder) placeholder.textContent = "ทั้งหมด";
 
       let count = 0;
@@ -117,11 +138,8 @@
           o.value = opt.value;
           o.textContent = opt.text;
           o.setAttribute("data-province-id", opt.provinceId || "");
-          // preserve prior selection if still relevant
-          if (opt.selected) {
-            o.selected = true;
-          }
-          districtSelect.appendChild(o);
+          if (opt.selected) o.selected = true;
+          els.districtSelect.appendChild(o);
           count++;
         }
       });
@@ -131,11 +149,68 @@
       }
     };
 
-    provinceSelect.addEventListener("change", updateDistricts);
+    els.provinceSelect.addEventListener("change", updateDistricts);
     updateDistricts();
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  // ================================
+  // Price Validation
+  // ================================
+  function setupPriceValidation() {
+    if (!els.priceInput) return;
+
+    const MAX_PRICE = 999999.99;
+
+    els.priceInput.addEventListener("input", function () {
+      const value = parseFloat(this.value);
+      if (value > MAX_PRICE) {
+        this.setCustomValidity(
+          `ราคาต้องไม่เกิน ${MAX_PRICE.toLocaleString("th-TH", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} บาท`
+        );
+      } else {
+        this.setCustomValidity("");
+      }
+    });
+
+    els.priceInput.addEventListener("blur", function () {
+      const value = parseFloat(this.value);
+      if (value > MAX_PRICE) {
+        alert(
+          `⚠️ ราคาต้องไม่เกิน ${MAX_PRICE.toLocaleString("th-TH", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} บาท`
+        );
+        this.focus();
+      }
+    });
+  }
+
+  // ================================
+  // Event Bindings
+  // ================================
+  function bindEvents() {
+    if (els.imageInput) {
+      els.imageInput.addEventListener("change", handleImageChange);
+    }
+  }
+
+  // ================================
+  // Initialization
+  // ================================
+  function init() {
+    cacheElements();
+    bindEvents();
     setupCascade();
-  });
+    setupPriceValidation();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 })();

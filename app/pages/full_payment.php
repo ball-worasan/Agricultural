@@ -84,17 +84,8 @@ if ($userId <= 0) {
 }
 
 // ----------------------------
-// ดึงโทเคน CSRF
-// ----------------------------
-$csrfToken = csrf_token();
-
 // POST: บันทึกการชำระเต็มจำนวนพร้อมสลิป
 if ($method === 'POST' && isset($_POST['full_payment'])) {
-  // กัน CSRF
-  $postedCsrf = (string) ($_POST['csrf'] ?? '');
-  if (!csrf_verify($postedCsrf)) {
-    json_response(['success' => false, 'message' => 'CSRF ไม่ถูกต้อง'], 403);
-  }
   $bookingId  = (int) ($_POST['booking_id'] ?? 0);
   $propertyId = (int) ($_POST['property_id'] ?? 0);
 
@@ -276,7 +267,6 @@ $remain  = max(0, $total - $deposit);
 <script>
   const BOOKING_ID = <?php echo (int) $bookingId; ?>;
   const PROPERTY_ID = <?php echo (int) $propertyId; ?>;
-  const CSRF_TOKEN = <?php echo json_encode($csrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
   async function submitFullPayment() {
     const fileInput = document.getElementById('slipFile');
@@ -291,7 +281,6 @@ $remain  = max(0, $total - $deposit);
 
     const fd = new FormData();
     fd.append('full_payment', '1');
-    fd.append('csrf', CSRF_TOKEN);
     fd.append('booking_id', String(BOOKING_ID));
     fd.append('property_id', String(PROPERTY_ID));
     fd.append('slip_file', fileInput.files[0]);

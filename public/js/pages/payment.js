@@ -1,71 +1,268 @@
-/**
- * Payment Page JavaScript
- * Handles payment confirmation, slip upload, and countdown timer
- */
-
 (() => {
   "use strict";
 
-  // Get data from window (set by PHP)
-  const AREA_ID = window.PAYMENT_DATA?.areaId || 0;
-  const BOOKING_DATE = window.PAYMENT_DATA?.bookingDate || "";
-  const CSRF_TOKEN = window.PAYMENT_DATA?.csrfToken || "";
+  const data = window.PAYMENT_DATA || {};
+  const AREA_ID = Number(data.areaId || 0);
+  const BOOKING_DATE = String(data.bookingDate || "");
+  const EXPIRES_AT = String(data.expiresAt || ""); // ISO string (DATE_ATOM)
+
+  const els = {
+    confirmBtn: null,
+    cancelBtn: null,
+    slipInput: null,
+    slipPreview: null,
+    timeRemaining: null,
+    timeRemainingText: null,
+  };
+
+  function cacheElements() {
+    els.confirmBtn = document.querySelector(".btn-confirm-payment");
+    els.cancelBtn = document.querySelector(".btn-cancel-payment");
+    els.slipInput = document.getElementById("slipFile");
+    els.slipPreview = document.getElementById("slipPreview");
+    els.timeRemaining = document.getElementById("timeRemaining");
+    els.timeRemainingText = document.getElementById("timeRemainingText");
+  }
+
+  function setConfirmEnabled(enabled) {
+    if (!els.confirmBtn) return;
+    els.confirmBtn.disabled = !enabled;
+    els.confirmBtn.title = enabled
+      ? "ยืนยันการชำระเงิน"
+      : "⚠️ อัปโหลดสลิปการโอนให้เรียบร้อยก่อน";
+  }
 
   // ================================
-  // Confirm Payment
+  // Slip Preview + validate
   // ================================
-  async function confirmPayment() {
-    const slipInput = document.getElementById("slipFile");
-    if (!slipInput?.files || slipInput.files.length === 0) {
-      alert("กรุณาอัปโหลดสลิปการโอนก่อนยืนยัน");
+  function initSlipPreview() {
+    if (!els.slipInput || !els.slipPreview) return;
+
+    els.slipInput.addEventListener("change", function () {
+      els.slipPreview.innerHTML = "";
+
+      if (!this.files || !this.files[0]) {
+        els.slipPreview.hidden = true;
+        setConfirmEnabled(false);
+        return;
+      }
+
+      const file = this.files[0];
+
+      if (file.size > 20 * 1024 * 1024) {
+        alert("❌ ไฟล์มีขนาดเกิน 20MB");
+        this.value = "";
+        els.slipPreview.hidden = true;
+        setConfirmEnabled(false);
+        return;
+      }
+
+      const allowedMimes = [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+      ];
+      if (!allowedMimes.includes(file.type)) {
+        alert("❌ รองรับเฉพาะไฟล์รูปภาพ (JPG, PNG, GIF, WebP)");
+        this.value = "";
+        els.slipPreview.hidden = true;
+        setConfirmEnabled(false);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = document.createElement("img");
+        img.src = String(e.target?.result || "");
+        img.style.maxWidth = "220px";
+        img.style.borderRadius = "8px";
+        img.style.border = "2px solid var(--secondary-color)";
+        img.alt = "Slip preview";
+
+        const badge = document.createElement("div");
+        badge.style.marginTop = "0.5rem";
+        badge.style.padding = "0.5rem 0.6rem";
+        badge.style.background = "var(--surface-muted)";
+        badge.style.border = "1px solid var(--border-color)";
+        badge.style.borderRadius = "8px";
+        badge.style.fontSize = "0.85rem";
+        badge.style.fontWeight = "600";
+        badge.textContent = "✓ สลิปพร้อมส่ง";
+
+        els.slipPreview.appendChild(img);
+        els.slipPreview.appendChild(badge);
+        els.slipPreview.hidden = false;
+
+        setConfirmEnabled(true);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ================================
+  // Countdown Timer (based on expiresAt from server)
+  // ================================
+  function initTimer() {
+    if (!els.timeRemaining || !EXPIRES_AT) return;
+
+    const expiresAtMs = Date.parse(EXPIRES_AT);
+    if (Number.isNaN(expiresAtMs)) {
+      els.timeRemaining.textContent = "--:--";
       return;
     }
 
-    if (!confirm("ยืนยันว่าคุณได้ชำระเงินและอัปโหลดสลิปเรียบร้อยแล้ว?")) return;
+    const tick = () => {
+      const now = Date.now();
+      let diffSec = Math.floor((expiresAtMs - now) / 1000);
+
+      if (diffSec <= 0) {
+        els.timeRemaining.textContent = "00:00";
+        if (els.timeRemainingText) els.timeRemainingText.textContent = "0 นาที";
+        alert("หมดเวลาชำระเงิน กรุณาทำรายการใหม่");
+        window.location.href = "?page=history";
+        return;
+      }
+
+      const minutes = Math.floor(diffSec / 60);
+      const seconds = diffSec % 60;
+      const mmss = `${String(minutes).padStart(2, "0")}:${String(
+        seconds
+      ).padStart(2, "0")}`;
+      els.timeRemaining.textContent = mmss;
+      if (els.timeRemainingText)
+        els.timeRemainingText.textContent = `${minutes} นาที`;
+
+      // สีตามความเสี่ยง
+      if (diffSec <= 60) {
+        els.timeRemaining.style.color = "var(--status-sold-text)";
+      } else if (diffSec <= 300) {
+        els.timeRemaining.style.color = "var(--status-booked-text)";
+      } else {
+        els.timeRemaining.style.color = "";
+      }
+
+      setTimeout(tick, 1000);
+    };
+
+    tick();
+  }
+
+  // ================================
+  // Confirm Payment (AJAX)
+  // ================================
+  async function confirmPayment() {
+    if (!AREA_ID || !BOOKING_DATE) {
+      alert("❌ ข้อมูลหน้าไม่ครบ (AREA_ID / BOOKING_DATE) กรุณารีเฟรชหน้า");
+      return;
+    }
+
+    if (
+      !els.slipInput?.files ||
+      els.slipInput.files.length === 0 ||
+      els.slipPreview?.hidden
+    ) {
+      alert("⚠️ กรุณาอัปโหลดสลิปการโอนและตรวจสอบรูปภาพก่อนยืนยัน");
+      els.slipInput?.focus();
+      return;
+    }
+
+    const file = els.slipInput.files[0];
+    if (file.size > 5 * 1024 * 1024) {
+      alert("❌ ไฟล์มีขนาดเกิน 5MB กรุณาเลือกไฟล์อื่น");
+      els.slipInput.value = "";
+      els.slipPreview.hidden = true;
+      setConfirmEnabled(false);
+      return;
+    }
+
+    const allowedMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!allowedMimes.includes(file.type)) {
+      alert("❌ รองรับเฉพาะไฟล์รูปภาพ (JPG, PNG, GIF, WebP)");
+      els.slipInput.value = "";
+      els.slipPreview.hidden = true;โ
+      setConfirmEnabled(false);
+      return;
+    }
+
+    if (!confirm("✓ ยืนยันว่าคุณได้ชำระเงินและอัปโหลดสลิปเรียบร้อยแล้ว?"))
+      return;
+
+    // กันกดรัว
+    if (els.confirmBtn) {
+      els.confirmBtn.disabled = true;
+      els.confirmBtn.textContent = "⏳ กำลังส่ง...";
+    }
 
     try {
       const formData = new FormData();
       formData.append("update_payment", "1");
-      formData.append("csrf", CSRF_TOKEN);
       formData.append("area_id", String(AREA_ID));
       formData.append("booking_date", BOOKING_DATE);
-      formData.append("slip_file", slipInput.files[0]);
+      formData.append("slip_file", file);
+
+      console.log("Sending payment confirmation...", {
+        areaId: AREA_ID,
+        bookingDate: BOOKING_DATE,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+      });
 
       const res = await fetch(window.location.href, {
         method: "POST",
         body: formData,
       });
 
-      let data = null;
+      let payload = null;
+      const contentType = res.headers.get("content-type");
+      const responseText = await res.text();
+
+      console.log("Response status:", res.status);
+      console.log("Response content-type:", contentType);
+      console.log("Response text:", responseText);
+
       try {
-        data = await res.json();
+        payload = JSON.parse(responseText);
       } catch (e) {
-        console.error("JSON parse error:", e);
+        console.error("Failed to parse JSON:", e);
       }
 
-      if (data?.success) {
-        alert(
-          "การจองเสร็จสมบูรณ์!\nระบบจะตรวจสอบสลิปและอนุมัติภายใน 5-10 นาที"
-        );
+      if (!res.ok) {
+        const errorMsg = payload?.message || "เกิดข้อผิดพลาด กรุณาลองใหม่";
+        alert("❌ " + errorMsg);
+        console.error("Server error response:", {
+          status: res.status,
+          payload,
+        });
+        if (els.confirmBtn) {
+          els.confirmBtn.disabled = false;
+          els.confirmBtn.textContent = "ยืนยันการชำระเงิน";
+        }
+        return;
+      }
+
+      if (payload?.success) {
+        alert("✅ ส่งสลิปเรียบร้อยแล้ว\nระบบจะตรวจสอบและแจ้งผลภายหลัง");
         window.location.href = "?page=history";
         return;
       }
 
-      if (data?.message) {
-        alert("ℹ️ " + data.message);
-        return;
+      alert("⚠️ " + (payload?.message || "ทำรายการไม่สำเร็จ"));
+      if (els.confirmBtn) {
+        els.confirmBtn.disabled = false;
+        els.confirmBtn.textContent = "ยืนยันการชำระเงิน";
       }
-
-      if (!res.ok) {
-        alert("เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
-        return;
-      }
-
-      alert("บันทึกแล้ว (ระบบจะตรวจสอบสลิป)");
-      window.location.href = "?page=history";
     } catch (err) {
       console.error("confirmPayment error:", err);
-      alert("เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่อีกครั้ง");
+      alert(
+        "❌ ส่งข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง\n\n" +
+          String(err.message || err)
+      );
+      if (els.confirmBtn) {
+        els.confirmBtn.disabled = false;
+        els.confirmBtn.textContent = "ยืนยันการชำระเงิน";
+      }
     }
   }
 
@@ -78,79 +275,22 @@
     }
   }
 
-  // Export to global scope for onclick handlers (if needed)
-  window.confirmPayment = confirmPayment;
-  window.cancelPayment = cancelPayment;
+  function bindEvents() {
+    els.confirmBtn?.addEventListener("click", confirmPayment);
+    els.cancelBtn?.addEventListener("click", cancelPayment);
+  }
 
-  // ================================
-  // Countdown Timer
-  // ================================
-  (function initTimer() {
-    let timeLeft = 60 * 60; // 60 minutes
-    const timeRemainingEl = document.getElementById("timeRemaining");
-    const timeRemainingTextEl = document.getElementById("timeRemainingText");
+  function init() {
+    cacheElements();
+    bindEvents();
+    initSlipPreview();
+    initTimer();
+    setConfirmEnabled(false);
+  }
 
-    if (!timeRemainingEl) return;
-
-    const countdown = setInterval(() => {
-      timeLeft--;
-
-      const minutes = Math.floor(timeLeft / 60);
-      const seconds = timeLeft % 60;
-      const mmss = `${String(minutes).padStart(2, "0")}:${String(
-        seconds
-      ).padStart(2, "0")}`;
-
-      timeRemainingEl.textContent = mmss;
-      if (timeRemainingTextEl) {
-        timeRemainingTextEl.textContent = `${minutes} นาที`;
-      }
-
-      if (timeLeft <= 0) {
-        clearInterval(countdown);
-        alert("หมดเวลาชำระเงิน การจองอาจถูกยกเลิกโดยอัตโนมัติ");
-        window.location.href = "?page=history";
-      } else if (timeLeft <= 60) {
-        timeRemainingEl.style.color = "var(--status-sold-text)";
-      } else if (timeLeft <= 300) {
-        timeRemainingEl.style.color = "var(--status-booked-text)";
-      }
-    }, 1000);
-  })();
-
-  // ================================
-  // Slip Preview
-  // ================================
-  const slipFileInput = document.getElementById("slipFile");
-  const slipPreview = document.getElementById("slipPreview");
-
-  if (slipFileInput && slipPreview) {
-    slipFileInput.addEventListener("change", function () {
-      slipPreview.innerHTML = "";
-
-      if (this.files && this.files[0]) {
-        const file = this.files[0];
-
-        if (file.size > 5 * 1024 * 1024) {
-          alert("ไฟล์มีขนาดเกิน 5MB");
-          this.value = "";
-          slipPreview.hidden = true;
-          return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = function (e) {
-          const img = document.createElement("img");
-          img.src = e.target.result;
-          img.style.maxWidth = "200px";
-          img.style.borderRadius = "6px";
-          slipPreview.appendChild(img);
-        };
-        reader.readAsDataURL(file);
-        slipPreview.hidden = false;
-      } else {
-        slipPreview.hidden = true;
-      }
-    });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
 })();

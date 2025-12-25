@@ -244,10 +244,9 @@ $auth = new AuthService($userRepo, $rateLimiter);
 // ----------------------------
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-  $username = isset($_POST['username']) ? (string) $_POST['username'] : '';
-  $password = isset($_POST['password']) ? (string) $_POST['password'] : '';
+  $username = isset($_POST['username']) ? trim((string) $_POST['username']) : '';
+  $password = isset($_POST['password']) ? trim((string) $_POST['password']) : '';
 
-  csrf_require();
   store_old_input(['username' => $username]);
 
   if (!$rateLimiter->canAttempt()) {
@@ -268,9 +267,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     flash('error', $message);
 
     $usernameLog = mb_substr(trim($username), 0, 50);
-    app_log('login_failed', [
+    app_log('signin_failed', [
       'username' => preg_replace('/[^a-zA-Z0-9_]/', '', $usernameLog),
-      'ip'       => $_SERVER['REMOTE_ADDR'] ?? null,
+      'reason' => 'invalid_credentials',
+      'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
     ]);
 
     redirect('?page=signin');
@@ -298,7 +298,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
   $_SESSION['_old_input'] = [];
 
-  app_log('login_success', [
+  app_log('signin_success', [
     'user_id'  => (int)$user['id'],
     'username' => (string)($user['username'] ?? ''),
     'ip'       => $_SERVER['REMOTE_ADDR'] ?? null,
@@ -322,8 +322,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       </div>
 
       <form action="?page=signin" method="POST" class="signin-form" novalidate>
-        <!-- CSRF -->
-        <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
 
         <div class="form-group">
           <label for="username">ชื่อผู้ใช้</label>

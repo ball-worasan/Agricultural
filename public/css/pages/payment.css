@@ -1,9 +1,4 @@
-/**
- * Payment Page Styles
- * Note: variables.css is already imported via base.css
- */
-
-/* ================================
+โ/* ================================
    PAYMENT CONTAINER
    ================================ */
 .payment-container {
@@ -123,6 +118,7 @@
   max-width: 300px;
   width: 100%;
   height: auto;
+  display: block;
 }
 
 .pay-meta {
@@ -195,8 +191,9 @@
 .slip-preview {
   margin-top: var(--spacing-sm);
   display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
 }
 
 /* hints */
@@ -232,13 +229,20 @@
 
 .btn-confirm-payment {
   background: var(--gradient-primary);
-  color: var(--bg-white);
+  color: var(--text-black);
   box-shadow: var(--shadow-md);
 }
 
 .btn-confirm-payment:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
+}
+
+.btn-confirm-payment:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-cancel-payment {

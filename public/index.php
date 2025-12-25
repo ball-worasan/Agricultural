@@ -31,6 +31,11 @@ $baseJs = [
   '/js/app.js',
 ];
 
+$pageCss = array_values(array_unique($pageCss));
+$pageJs = array_values(array_unique($pageJs));
+
+$cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
+
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -54,11 +59,9 @@ $baseJs = [
     <link rel="stylesheet" href="<?= e($href); ?>">
   <?php endforeach; ?>
 
-  <?php $cspNonce = function_exists('csp_nonce') ? csp_nonce() : ''; ?>
   <script nonce="<?= e($cspNonce); ?>">
     window.APP = {
       page: <?= json_encode($page, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
-      csrf: <?= json_encode(csrf_token(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
     };
   </script>
 
@@ -74,7 +77,7 @@ $baseJs = [
 
 </head>
 
-<body data-csrf="<?= e(csrf_token()); ?>">
+<body>
   <?php
   // แสดง navbar
   try {
@@ -100,20 +103,24 @@ $baseJs = [
       ?>
 
         <!-- แสดง error ของหน้านั้นๆ -->
-        <section class="container">
-          <h1>เกิดข้อผิดพลาด</h1>
-          <p>ไม่สามารถโหลดหน้านี้ได้ กรุณาลองใหม่อีกครั้ง</p>
-          <p><a href="?page=home">กลับหน้าหลัก</a></p>
+        <section class="error-section container" role="alert" aria-live="polite">
+          <h1 class="error-title">เกิดข้อผิดพลาด</h1>
+          <p class="error-text">ไม่สามารถโหลดหน้านี้ได้ กรุณาลองใหม่อีกครั้ง</p>
+          <div class="error-actions">
+            <a href="?page=home" class="btn btn-primary">กลับหน้าหลัก</a>
+          </div>
         </section>
       <?php } ?>
 
     <?php else: ?>
       <!-- แสดง error ของหน้านั้นๆ -->
       <?php http_response_code(404); ?>
-      <section class="container">
-        <h1>ไม่พบหน้าที่ต้องการ (404)</h1>
-        <p>หน้าที่คุณเรียกอาจถูกลบหรือย้ายไปแล้ว</p>
-        <p><a href="?page=home">กลับหน้าหลัก</a></p>
+      <section class="error-section container" role="alert" aria-live="polite">
+        <h1 class="error-title">ไม่พบหน้าที่ต้องการ (404)</h1>
+        <p class="error-text">หน้าที่คุณเรียกอาจถูกลบหรือย้ายไปแล้ว</p>
+        <div class="error-actions">
+          <a href="?page=home" class="btn btn-primary">กลับหน้าหลัก</a>
+        </div>
       </section>
     <?php endif; ?>
   </main>

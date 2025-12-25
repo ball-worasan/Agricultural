@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/NotificationService.php';
-
 /**
  * User Service
  * จัดการผู้ใช้ - ลืมรหัสผ่าน, เปลี่ยนรหัส
@@ -51,7 +49,7 @@ class UserService
   {
     try {
       $user = Database::fetchOne(
-        'SELECT id FROM users WHERE password_reset_token = ? AND password_reset_expires_at > NOW() LIMIT 1',
+        'SELECT user_id FROM users WHERE password_reset_token = ? AND password_reset_expires_at > NOW() LIMIT 1',
         [$token]
       );
 
@@ -65,8 +63,8 @@ class UserService
       }
 
       Database::execute(
-        'UPDATE users SET password = ?, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = ?',
-        [$hashedPassword, (int)$user['id']]
+        'UPDATE users SET password = ?, password_reset_token = NULL, password_reset_expires_at = NULL WHERE user_id = ?',
+        [$hashedPassword, (int)$user['user_id']]
       );
 
       return true;

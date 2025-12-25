@@ -124,28 +124,36 @@ if ($method === 'POST') {
       json_response(['success' => false, 'message' => 'คุณไม่มีสิทธิ์จัดการการจองนี้'], 403);
     }
 
+    // ตรวจสอบว่ามีสลิปการโอนหรือไม่
+    $paymentSlip = trim((string)($booking['payment_slip'] ?? ''));
+    if ($paymentSlip === '') {
+      json_response(['success' => false, 'message' => 'ยังไม่มีสลิปการโอน กรุณารอให้ผู้ใช้อัปโหลด'], 400);
+    }
+
     if ($action === 'approve') {
       // อนุมัติการจอง
       $areaId = (int)$booking['area_id'];
 
-      // 1. อัปเดต booking นี้เป็น approved
-      Database::execute(
-        'UPDATE booking_deposit SET deposit_status = "approved", updated_at = CURRENT_TIMESTAMP WHERE booking_id = ?',
-        [$bookingId]
-      );
+      Database::transaction(function () use ($bookingId, $areaId, $userId) {
+        // 1. อัปเดต booking นี้เป็น approved
+        Database::execute(
+          'UPDATE booking_deposit SET deposit_status = "approved", updated_at = CURRENT_TIMESTAMP WHERE booking_id = ?',
+          [$bookingId]
+        );
 
-      // 2. อัปเดตสถานะพื้นที่เป็น booked
-      Database::execute(
-        'UPDATE rental_area SET area_status = "booked", updated_at = CURRENT_TIMESTAMP WHERE area_id = ?',
-        [$areaId]
-      );
+        // 2. อัปเดตสถานะพื้นที่เป็น booked
+        Database::execute(
+          'UPDATE rental_area SET area_status = "booked", updated_at = CURRENT_TIMESTAMP WHERE area_id = ?',
+          [$areaId]
+        );
 
-      // 3. ปฏิเสธการจองอื่น ๆ ที่ pending สำหรับพื้นที่เดียวกัน
-      Database::execute(
-        'UPDATE booking_deposit SET deposit_status = "rejected", updated_at = CURRENT_TIMESTAMP 
-         WHERE area_id = ? AND booking_id != ? AND deposit_status = "pending"',
-        [$areaId, $bookingId]
-      );
+        // 3. ปฏิเสธการจองอื่น ๆ ที่ pending สำหรับพื้นที่เดียวกัน
+        Database::execute(
+          'UPDATE booking_deposit SET deposit_status = "rejected", updated_at = CURRENT_TIMESTAMP 
+           WHERE area_id = ? AND booking_id != ? AND deposit_status = "pending"',
+          [$areaId, $bookingId]
+        );
+      });
 
       app_log('booking_approved', [
         'booking_id' => $bookingId,
@@ -156,10 +164,11 @@ if ($method === 'POST') {
       json_response([
         'success' => true,
         'message' => 'อนุมัติการจองเรียบร้อยแล้ว พื้นที่ถูกอัปเดตเป็น "ติดจอง"',
+        'booking_id' => $bookingId,
+        'area_id' => $areaId,
       ]);
     } elseif ($action === 'reject') {
       // ปฏิเสธการจอง
-      // Note: booking_deposit doesn't have a rejection_reason field, so just update status
       Database::execute(
         'UPDATE booking_deposit SET deposit_status = "rejected", updated_at = CURRENT_TIMESTAMP WHERE booking_id = ?',
         [$bookingId]
@@ -167,12 +176,14 @@ if ($method === 'POST') {
 
       app_log('booking_rejected', [
         'booking_id' => $bookingId,
+        'area_id' => (int)($booking['area_id'] ?? 0),
         'owner_id' => $userId,
       ]);
 
       json_response([
         'success' => true,
         'message' => 'ปฏิเสธการจองเรียบร้อยแล้ว',
+        'booking_id' => $bookingId,
       ]);
     }
   } catch (Throwable $e) {
@@ -182,7 +193,7 @@ if ($method === 'POST') {
       'error'      => $e->getMessage(),
     ]);
 
-    json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาดในการดำเนินการ'], 500);
+    json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาดในการดำเนินการ: ' . $e->getMessage()], 500);
   }
 }
 
@@ -211,7 +222,7 @@ try {
   $bookings = Database::fetchAll(
     'SELECT 
         bd.booking_id, bd.area_id, bd.user_id, bd.booking_date, bd.deposit_amount, bd.deposit_status,
-        bd.created_at, bd.updated_at,
+        bd.payment_slip, bd.created_at, bd.updated_at,
         u.full_name, u.username, u.phone
      FROM booking_deposit bd
      JOIN users u ON bd.user_id = u.user_id
@@ -336,12 +347,27 @@ $statusClass = [
               </div>
             </div>
 
+            <?php
+            $paymentSlip = trim((string)($booking['payment_slip'] ?? ''));
+            if ($paymentSlip !== ''):
+            ?>
+              <div class="booking-slip">
+                <div class="slip-label">📄 สลิปการโอน:</div>
+                <img
+                  src="<?= e($paymentSlip); ?>"
+                  alt="สลิปการโอนของ <?= e($userFullName); ?>"
+                  class="slip-thumbnail"
+                  onclick="openSlipModal('<?= e($paymentSlip); ?>', '<?= e($userFullName); ?>')">
+              </div>
+            <?php endif; ?>
+
             <?php if ($bookingStatus === 'pending'): ?>
               <div class="booking-actions">
                 <button
                   type="button"
                   class="btn-action approve"
-                  onclick="approveBooking(<?= $bid; ?>)">
+                  data-booking-id="<?= $bid; ?>"
+                  title="อนุมัติการจอง">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"></polyline>
                   </svg>
@@ -350,7 +376,8 @@ $statusClass = [
                 <button
                   type="button"
                   class="btn-action reject"
-                  onclick="rejectBooking(<?= $bid; ?>)">
+                  data-booking-id="<?= $bid; ?>"
+                  title="ปฏิเสธการจอง">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -368,13 +395,24 @@ $statusClass = [
 
 <!-- Modal สำหรับดูสลิปขนาดใหญ่ -->
 <div id="slipModal" class="modal" onclick="closeSlipModal(event)">
-  <div class="modal-content">
+  <div class="modal-content" onclick="event.stopPropagation()">
     <button type="button" class="modal-close" onclick="closeSlipModal(event)">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="18" y1="6" x2="6" y2="18"></line>
         <line x1="6" y1="6" x2="18" y2="18"></line>
       </svg>
     </button>
+    <div class="modal-header">
+      <h3 id="slipModalTitle">สลิปการโอน</h3>
+    </div>
     <img id="slipModalImage" src="" alt="สลิปการโอน">
   </div>
 </div>
+
+<!-- Data for JavaScript -->
+<script>
+  window.PROPERTY_BOOKINGS = {
+    areaId: <?php echo (int)$areaId; ?>
+  };
+</script>
+<script src="/js/pages/property_bookings.js"></script>

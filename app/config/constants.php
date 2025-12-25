@@ -29,3 +29,18 @@ const ROLE_IDS = [
   'member' => ROLE_MEMBER,
   'guest'  => ROLE_GUEST,
 ];
+
+if (!function_exists('role_name')) {
+  function role_name(int $id): string
+  {
+    return ROLE_NAMES[$id] ?? ROLE_NAMES[ROLE_GUEST];
+  }
+}
+
+if (!function_exists('role_id')) {
+  function role_id(string $name): int
+  {
+    $normalized = strtolower(trim($name));
+    return ROLE_IDS[$normalized] ?? ROLE_GUEST;
+  }
+}

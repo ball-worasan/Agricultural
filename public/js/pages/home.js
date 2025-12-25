@@ -115,6 +115,13 @@
               return a.price - b.price;
           }
         });
+
+        // Reorder DOM elements based on sorted array with minimal reflow
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < visible.length; i++) {
+          frag.appendChild(visible[i].el);
+        }
+        container.appendChild(frag);
       } catch (err) {
         console.error("Home filter error:", err);
       }

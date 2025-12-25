@@ -25,6 +25,23 @@ if (!function_exists('app_env')) {
   }
 }
 
+if (!function_exists('app_env_string')) {
+  function app_env_string(string $key, string $default = ''): string
+  {
+    $v = app_env($key, $default);
+    return $v !== null ? (string)$v : $default;
+  }
+}
+
+if (!function_exists('app_env_bool')) {
+  function app_env_bool(string $key, bool $default = false): bool
+  {
+    $raw = app_env($key, $default ? 'true' : 'false');
+    $val = is_string($raw) ? strtolower($raw) : ($default ? 'true' : 'false');
+    return in_array($val, ['1', 'true', 'yes', 'on'], true);
+  }
+}
+
 if (!function_exists('app_is_production')) {
   function app_is_production(): bool
   {
@@ -36,8 +53,7 @@ if (!function_exists('app_is_production')) {
 if (!function_exists('app_debug_enabled')) {
   function app_debug_enabled(): bool
   {
-    $v = strtolower((string)(app_env('APP_DEBUG', 'false') ?? 'false'));
-    return in_array($v, ['1', 'true', 'yes', 'on'], true) && !app_is_production();
+    return app_env_bool('APP_DEBUG', false) && !app_is_production();
   }
 }
 
@@ -80,10 +96,8 @@ function app_session_start(): void
   session_set_cookie_params($params);
   session_start();
 
-  if (empty($_SESSION['_csrf']) || !is_string($_SESSION['_csrf'])) {
-    $_SESSION['_csrf'] = bin2hex(random_bytes(32));
-  }
 }
+
 
 if (!function_exists('csp_nonce')) {
   function csp_nonce(): string
@@ -94,6 +108,22 @@ if (!function_exists('csp_nonce')) {
     // base64 สำหรับ CSP nonce
     $nonce = base64_encode(random_bytes(16));
     return $nonce;
+  }
+}
+
+if (!function_exists('is_json_request')) {
+  function is_json_request(): bool
+  {
+    $accept = (string)($_SERVER['HTTP_ACCEPT'] ?? '');
+    return stripos($accept, 'application/json') !== false;
+  }
+}
+
+if (!function_exists('is_ajax_request')) {
+  function is_ajax_request(): bool
+  {
+    $xrw = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''));
+    return $xrw === 'xmlhttprequest';
   }
 }
 
@@ -362,82 +392,6 @@ if (!function_exists('json_response')) {
   }
 }
 
-// ----------------------------
-// CSRF (ชื่อให้สอดคล้องกัน + alias กันของเก่าพัง)
-// ----------------------------
-if (!function_exists('csrf_token')) {
-  function csrf_token(): string
-  {
-    app_session_start();
-    $t = $_SESSION['_csrf'] ?? '';
-    return is_string($t) ? $t : '';
-  }
-}
-
-if (!function_exists('csrf_from_request')) {
-  function csrf_from_request(): ?string
-  {
-    $t = $_POST['csrf'] ?? ($_GET['csrf'] ?? null);
-    return is_string($t) ? $t : null;
-  }
-}
-
-if (!function_exists('csrf_verify')) {
-  function csrf_verify(?string $token): bool
-  {
-    app_session_start();
-
-    $sessionToken = $_SESSION['_csrf'] ?? null;
-    if (!is_string($sessionToken) || $sessionToken === '') return false;
-    if (!is_string($token) || $token === '') return false;
-
-    return hash_equals($sessionToken, $token);
-  }
-}
-
-if (!function_exists('csrf_require')) {
-  function csrf_require(?string $token = null): void
-  {
-    $token = $token ?? csrf_from_request();
-    if (csrf_verify($token)) return;
-
-    $accept = (string)($_SERVER['HTTP_ACCEPT'] ?? '');
-    $xrw    = (string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '');
-
-    if (stripos($accept, 'application/json') !== false || strtolower($xrw) === 'xmlhttprequest') {
-      json_response(['success' => false, 'message' => 'CSRF ไม่ถูกต้อง'], 419);
-    }
-
-    flash('error', 'CSRF ไม่ถูกต้อง');
-    redirect($_SERVER['HTTP_REFERER'] ?? '?page=home');
-  }
-}
-
-/**
- * Alias เพื่อรองรับโค้ดเดิม (เช่น payment.php เรียก verify_csrf)
- * Intelephense จะไม่ร้องแล้ว
- */
-if (!function_exists('verify_csrf')) {
-  function verify_csrf(?string $token): bool
-  {
-    return csrf_verify($token);
-  }
-}
-
-if (!function_exists('verify_csrf_token')) {
-  function verify_csrf_token(?string $token): bool
-  {
-    return csrf_verify($token);
-  }
-}
-
-if (!function_exists('request_csrf_token')) {
-  function request_csrf_token(): ?string
-  {
-    return csrf_from_request();
-  }
-}
-
 
 // ----------------------------
 // Router utilities (ใช้ใน index.php)
@@ -455,33 +409,32 @@ if (!function_exists('resolve_page')) {
   }
 }
 
+if (!function_exists('build_asset_paths')) {
+  function build_asset_paths(string $base, array $list): array
+  {
+    $out = [];
+    if (!is_array($list)) return $out;
+    foreach ($list as $file) {
+      if (!is_string($file) || $file === '') continue;
+      $out[] = $base . ltrim($file, '/');
+    }
+    return $out;
+  }
+}
+
 if (!function_exists('build_page_css')) {
   function build_page_css(array $route): array
   {
-    $pageCss = [];
     $cssList = $route['css'] ?? [];
-    if (!is_array($cssList)) return $pageCss;
-
-    foreach ($cssList as $cssFile) {
-      if (!is_string($cssFile) || $cssFile === '') continue;
-      $pageCss[] = '/css/' . ltrim($cssFile, '/');
-    }
-    return $pageCss;
+    return build_asset_paths('/css/', is_array($cssList) ? $cssList : []);
   }
 }
 
 if (!function_exists('build_page_js')) {
   function build_page_js(array $route): array
   {
-    $pageJs = [];
     $jsList = $route['js'] ?? [];
-    if (!is_array($jsList)) return $pageJs;
-
-    foreach ($jsList as $jsFile) {
-      if (!is_string($jsFile) || $jsFile === '') continue;
-      $pageJs[] = '/js/' . ltrim($jsFile, '/');
-    }
-    return $pageJs;
+    return build_asset_paths('/js/', is_array($jsList) ? $jsList : []);
   }
 }
 

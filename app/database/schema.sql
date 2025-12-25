@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS `booking_deposit` (
   `booking_date` DATE NOT NULL,
   `deposit_amount` DECIMAL(8, 2) NOT NULL,
   `deposit_status` ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+  `payment_slip` VARCHAR(255) NULL COMMENT 'Path to uploaded payment slip image',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_booking_area_date` (`area_id`, `booking_date`),

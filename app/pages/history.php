@@ -60,6 +60,15 @@ if ($userId <= 0) {
 }
 
 // ----------------------------
+// Guard: แอดมินไม่มีประวัติการจองของตัวเอง
+// ----------------------------
+$userRole = (int)($user['role'] ?? 0);
+if ($userRole === ROLE_ADMIN) {
+  flash('error', 'ผู้ดูแลระบบไม่มีประวัติการจองของตัวเอง');
+  redirect('?page=admin_dashboard');
+}
+
+// ----------------------------
 // จัดการคำขอ AJAX
 // ----------------------------
 if (isset($_GET['action'])) {
@@ -115,7 +124,10 @@ if (isset($_GET['action'])) {
   }
 
   if ($action === 'cancel_booking' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $bookingId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+    $bookingId = isset($_POST['booking_id'])
+      ? (int) $_POST['booking_id']
+      : (isset($_GET['id']) ? (int) $_GET['id'] : 0);
+
     if ($bookingId <= 0) {
       json_response([
         'success' => false,
@@ -124,10 +136,10 @@ if (isset($_GET['action'])) {
     }
 
     try {
-      // ตรวจสอบว่าเป็นการจองของผู้ใช้นี้และยังรอการอนุมัติ
+      // ตรวจสอบว่าเป็นการจองของผู้ใช้นี้และยังรอการอนุมัติ พร้อมดึง area_id
       $booking = Database::fetchOne(
         '
-                SELECT booking_id 
+                SELECT booking_id, area_id 
                 FROM booking_deposit 
                 WHERE booking_id = ? 
                   AND user_id = ? 
@@ -144,23 +156,41 @@ if (isset($_GET['action'])) {
         ], 404);
       }
 
-      Database::execute(
-        '
+      $areaId = (int)($booking['area_id'] ?? 0);
+
+      Database::transaction(function () use ($bookingId, $areaId) {
+        Database::execute(
+          '
                 UPDATE booking_deposit 
                 SET deposit_status = "rejected", updated_at = CURRENT_TIMESTAMP 
                 WHERE booking_id = ?
                 ',
-        [$bookingId]
-      );
+          [$bookingId]
+        );
+
+        if ($areaId > 0) {
+          Database::execute(
+            '
+                UPDATE rental_area 
+                SET area_status = "available", updated_at = CURRENT_TIMESTAMP 
+                WHERE area_id = ? AND area_status IN ("booked", "unavailable")
+                ',
+            [$areaId]
+          );
+        }
+      });
 
       app_log('history_cancel_booking_success', [
         'user_id'    => $userId,
         'booking_id' => $bookingId,
+        'area_id'    => $areaId,
       ]);
 
       json_response([
         'success' => true,
         'message' => 'ยกเลิกการจองสำเร็จ',
+        'booking_id' => $bookingId,
+        'area_id' => $areaId,
       ]);
     } catch (Throwable $e) {
       app_log('history_cancel_booking_error', [
@@ -321,7 +351,11 @@ foreach ($bookings as $b) {
             </div>
             <div class="booking-card-field">
               <span class="field-label">สถานะพื้นที่:</span>
-              <span class="field-value"><?= e($b['area_status'] === 'available' ? 'พร้อมให้เช่า' : ($b['area_status'] === 'booked' ? 'ติดจอง' : 'ปิดให้เช่า')); ?></span>
+              <span class="field-value"><?= e(
+                                          ($b['area_status'] === 'available') ? 'พร้อมให้เช่า'
+                                            : (($b['area_status'] === 'booked') ? 'ติดจอง'
+                                              : (($b['area_status'] === 'available') ? 'จองไว้' : 'ปิดให้เช่า'))
+                                        ); ?></span>
             </div>
           </div>
 

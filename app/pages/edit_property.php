@@ -150,12 +150,10 @@ if (isset($area['area_size'])) {
   $defaultSqwa = (int)round(($remain * 4 - $defaultNgan) * 100); // 1 งาน = 100 ตร.วา
 }
 
-$allowedStatuses = ['available', 'booked', 'unavailable'];
+$allowedStatuses = ['available', 'reserved', 'booked', 'unavailable'];
 $errors = [];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-  csrf_require();
-
   $title        = trim((string)($_POST['title'] ?? $area['area_name'] ?? ''));
   $provinceId   = (int)($_POST['province'] ?? $provinceId);
   $districtId   = (int)($_POST['district'] ?? $area['district_id'] ?? 0);
@@ -175,12 +173,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   if ($provinceId <= 0) $errors[] = 'กรุณาเลือกจังหวัด';
   if ($districtId <= 0) $errors[] = 'กรุณาเลือกอำเภอ';
 
+  // ราคาเช่าต่อปี: validate ตามสคีมา DECIMAL(8,2) → สูงสุด 999,999.99
   $price = 0.0;
   if ($priceRaw === '' || !is_numeric($priceRaw)) {
     $errors[] = 'กรุณากรอกราคาที่ถูกต้อง';
   } else {
     $price = (float)$priceRaw;
-    if ($price < 0) $errors[] = 'ราคาต้องไม่ติดลบ';
+    if ($price < 0) {
+      $errors[] = 'ราคาต้องไม่ติดลบ';
+    } elseif ($price > 999999.99) {
+      $errors[] = 'ราคาต้องไม่เกิน 999,999.99 บาท';
+      $price = 999999.99;
+    }
   }
 
   $areaSize = (float)$areaRai + ($areaNgan / 4.0) + ($areaSqwa / 400.0);
@@ -327,7 +331,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 <div
   class="add-property-container"
-  data-csrf="<?= e(csrf_token()); ?>"
   data-area-id="<?= (int)$areaId; ?>">
   <div class="form-header">
     <a href="?page=my_properties" class="btn-back">← กลับรายการของฉัน</a>
@@ -347,7 +350,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   <?php endif; ?>
 
   <form method="POST" enctype="multipart/form-data" class="property-form">
-    <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
 
     <div class="form-section">
       <h2 class="section-title">ข้อมูลพื้นฐาน</h2>
@@ -425,8 +427,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="price">ราคาเช่าต่อปี (บาท) <span class="required">*</span></label>
-          <input id="price" name="price" type="number" min="0" step="0.01" required
+          <input id="price" name="price" type="number" min="0" max="999999.99" step="0.01" required
             value="<?= e($_POST['price'] ?? (string)($area['price_per_year'] ?? '')) ?>">
+          <small class="text-note">ราคาสูงสุด 999,999.99 บาท</small>
         </div>
 
         <div class="form-group">

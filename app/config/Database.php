@@ -18,6 +18,19 @@ final class Database
   private static ?array $config = null;
 
   private const SUPPORTED_DRIVERS = ['mysql'];
+  private const ENV_KEYS = [
+    'APP_ENV',
+    'APP_DEBUG',
+    'DB_CONNECTION',
+    'DB_HOST',
+    'DB_PORT',
+    'DB_DATABASE',
+    'DB_USERNAME',
+    'DB_PASSWORD',
+    'DB_CHARSET',
+    'DB_PERSISTENT',
+    'APP_TIMEZONE',
+  ];
 
   private static function envPath(): string
   {
@@ -32,7 +45,7 @@ final class Database
     if (self::$envLoaded) return;
 
     // 1) seed จาก environment ของระบบก่อน (ดีที่สุด)
-    foreach (['APP_ENV', 'APP_DEBUG', 'DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_CHARSET', 'DB_PERSISTENT', 'APP_TIMEZONE'] as $k) {
+    foreach (self::ENV_KEYS as $k) {
       $v = getenv($k);
       if ($v !== false && $v !== '') self::$env[$k] = (string)$v;
     }
@@ -117,7 +130,8 @@ final class Database
       return $default;
     }
 
-    return in_array(strtolower($val), ['1', 'true', 'yes', 'on'], true);
+    $normalized = filter_var($val, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    return $normalized ?? $default;
   }
 
   /**

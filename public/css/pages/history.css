@@ -351,9 +351,94 @@ table.booking-table tbody tr:nth-child(even) {
   color: var(--bg-white);
 }
 
-/* Mobile Cards */
-.booking-cards {
-  display: none;
+/* Booking Cards (shared) */
+.booking-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--divider-color);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.booking-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.booking-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.booking-location {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.booking-card-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.booking-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.field-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.field-value.price {
+  color: var(--primary-color);
+}
+
+.booking-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.5px;
+}
+
+.badge-deposit-pending {
+  background: var(--status-booked-bg);
+  color: var(--status-booked-text);
+}
+
+.badge-deposit-approved {
+  background: var(--status-available-bg);
+  color: var(--status-available-text);
+}
+
+.badge-deposit-rejected {
+  background: var(--status-sold-bg);
+  color: var(--status-sold-text);
 }
 
 /* Responsive */
@@ -464,6 +549,8 @@ table.booking-table tbody tr:nth-child(even) {
 
 @media (min-width: 769px) {
   .booking-cards {
-    display: none;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
   }
 }

@@ -161,12 +161,33 @@ if (!class_exists('RegistrationService')) {
 
       $username = isset($input['username']) ? trim((string) $input['username']) : '';
 
-      $password        = isset($input['password']) ? (string) $input['password'] : '';
-      $passwordConfirm = isset($input['password_confirm']) ? (string) $input['password_confirm'] : '';
+      $password        = isset($input['password']) ? trim((string) $input['password']) : '';
+      $passwordConfirm = isset($input['password_confirm']) ? trim((string) $input['password_confirm']) : '';
 
       // required fields
-      if ($firstName === '' || $lastName === '' || $username === '' || $password === '' || $address === '' || $phone === '') {
-        return ['success' => false, 'message' => 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน'];
+      $missingFields = [];
+      if ($firstName === '') $missingFields[] = 'ชื่อ';
+      if ($lastName === '') $missingFields[] = 'นามสกุล';
+      if ($username === '') $missingFields[] = 'ชื่อผู้ใช้';
+      if ($password === '') $missingFields[] = 'รหัสผ่าน';
+      if ($passwordConfirm === '') $missingFields[] = 'ยืนยันรหัสผ่าน';
+      if ($address === '') $missingFields[] = 'ที่อยู่';
+      if ($phone === '') $missingFields[] = 'เบอร์โทรศัพท์';
+
+      if (!empty($missingFields)) {
+        app_log('signup_validation_missing_fields', [
+          'missing' => $missingFields,
+          'received' => [
+            'firstname' => $firstName !== '' ? 'ok' : 'empty',
+            'lastname' => $lastName !== '' ? 'ok' : 'empty',
+            'username' => $username !== '' ? 'ok' : 'empty',
+            'password' => $password !== '' ? 'has_value' : 'empty',
+            'password_confirm' => $passwordConfirm !== '' ? 'has_value' : 'empty',
+            'address' => $address !== '' ? 'ok' : 'empty',
+            'phone' => $phone !== '' ? 'ok' : 'empty',
+          ]
+        ]);
+        return ['success' => false, 'message' => 'กรุณากรอก: ' . implode(', ', $missingFields)];
       }
 
       if (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $username)) {
@@ -222,12 +243,30 @@ if (!class_exists('RegistrationService')) {
       ];
 
       try {
-        $ok = $this->users->createUser($data);
-        if (!$ok) {
-          return ['success' => false, 'message' => 'สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง'];
-        }
+        Database::transaction(function () use ($data) {
+          $ok = Database::execute(
+            'INSERT INTO users 
+                        (username, password, full_name, address, phone, role) 
+                     VALUES 
+                        (?, ?, ?, ?, ?, ?)',
+            [
+              $data['username'],
+              $data['password_hash'],
+              $data['full_name'],
+              $data['address'],
+              $data['phone'],
+              $data['role'] ?? 2,
+            ]
+          );
+          if ($ok <= 0) {
+            throw new RuntimeException('insert_failed');
+          }
+        });
       } catch (Throwable $e) {
-        app_log('signup_create_user_error', ['error' => $e->getMessage()]);
+        app_log('signup_create_user_error', [
+          'username' => $data['username'] ?? null,
+          'error' => $e->getMessage(),
+        ]);
         return ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง'];
       }
 
@@ -245,7 +284,6 @@ $userRepo    = new SignupUserRepository();
 $service     = new RegistrationService($userRepo);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-  csrf_require();
   store_old_input([
     'firstname' => $_POST['firstname'] ?? '',
     'lastname'  => $_POST['lastname'] ?? '',
@@ -301,7 +339,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       </div>
 
       <form action="?page=signup" method="POST" class="signup-form" novalidate>
-        <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
         <div class="form-row">
           <div class="form-group">
             <label for="firstname">ชื่อ</label>

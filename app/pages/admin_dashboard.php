@@ -54,40 +54,40 @@ if ($user === null || ($user['role'] ?? 0) !== ROLE_ADMIN) {
 // ดึงสถิติแบบกันพลาด
 // ----------------------------
 $stats = [
-  'total_properties'      => 0,
-  'available_properties'  => 0,
-  'booked_properties'     => 0,
-  'sold_properties'       => 0,
+  'total_areas'           => 0,
+  'available_areas'       => 0,
+  'booked_areas'          => 0,
+  'unavailable_areas'     => 0,
   'total_users'           => 0,
   'total_bookings'        => 0,
   'pending_bookings'      => 0,
-  'confirmed_bookings'    => 0,
+  'approved_bookings'     => 0,
 ];
 
 try {
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM properties');
-  $stats['total_properties'] = (int) ($row['count'] ?? 0);
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM rental_area');
+  $stats['total_areas'] = (int) ($row['count'] ?? 0);
 
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM properties WHERE status = "available"');
-  $stats['available_properties'] = (int) ($row['count'] ?? 0);
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM rental_area WHERE area_status = "available"');
+  $stats['available_areas'] = (int) ($row['count'] ?? 0);
 
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM properties WHERE status = "booked"');
-  $stats['booked_properties'] = (int) ($row['count'] ?? 0);
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM rental_area WHERE area_status = "booked"');
+  $stats['booked_areas'] = (int) ($row['count'] ?? 0);
 
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM properties WHERE status = "sold"');
-  $stats['sold_properties'] = (int) ($row['count'] ?? 0);
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM rental_area WHERE area_status = "unavailable"');
+  $stats['unavailable_areas'] = (int) ($row['count'] ?? 0);
 
   $row = Database::fetchOne('SELECT COUNT(*) AS count FROM users');
   $stats['total_users'] = (int) ($row['count'] ?? 0);
 
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM bookings');
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM booking_deposit');
   $stats['total_bookings'] = (int) ($row['count'] ?? 0);
 
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM bookings WHERE booking_status = "pending"');
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM booking_deposit WHERE deposit_status = "pending"');
   $stats['pending_bookings'] = (int) ($row['count'] ?? 0);
 
-  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM bookings WHERE booking_status = "approved"');
-  $stats['confirmed_bookings'] = (int) ($row['count'] ?? 0);
+  $row = Database::fetchOne('SELECT COUNT(*) AS count FROM booking_deposit WHERE deposit_status = "approved"');
+  $stats['approved_bookings'] = (int) ($row['count'] ?? 0);
 } catch (Throwable $e) {
   app_log('admin_stats_error', [
     'error' => $e->getMessage(),
@@ -97,18 +97,15 @@ try {
 
 // รายได้
 try {
-  $revenueRow = Database::fetchOne(
-    '
-        SELECT 
-            SUM(deposit_amount) AS total_deposit, 
-            SUM(total_amount)   AS total_revenue 
-        FROM bookings 
-        WHERE payment_status IN ("deposit_success", "full_paid")
-        '
+  $depositRow = Database::fetchOne(
+    'SELECT SUM(deposit_amount) AS total_deposit FROM booking_deposit WHERE deposit_status = "approved"'
+  );
+  $paymentRow = Database::fetchOne(
+    'SELECT SUM(net_amount) AS total_net FROM payment WHERE status = "confirmed"'
   );
   $revenue = [
-    'total_deposit' => (float) ($revenueRow['total_deposit'] ?? 0),
-    'total_revenue' => (float) ($revenueRow['total_revenue'] ?? 0),
+    'total_deposit' => (float) ($depositRow['total_deposit'] ?? 0),
+    'total_revenue' => (float) ($paymentRow['total_net'] ?? 0),
   ];
 } catch (Throwable $e) {
   app_log('admin_revenue_error', ['error' => $e->getMessage()]);
@@ -123,68 +120,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string) ($_POST['action'] ?? '');
 
   try {
-    if ($action === 'delete_property') {
-      $propertyId = (int) ($_POST['property_id'] ?? 0);
+    if ($action === 'delete_area') {
+      $areaId = (int) ($_POST['area_id'] ?? 0);
 
-      // ลบไฟล์รูปภาพจริง (ถ้าต้องการ)
+      // ลบไฟล์รูปภาพจริง (optional)
       $images = Database::fetchAll(
-        'SELECT image_url FROM property_images WHERE property_id = ?',
-        [$propertyId]
+        'SELECT image_url FROM area_image WHERE area_id = ?',
+        [$areaId]
       );
       foreach ($images as $img) {
-        if (!empty($img['image_url'])) {
-          $filePath = APP_PATH . $img['image_url'];
+        $url = (string) ($img['image_url'] ?? '');
+        if ($url !== '') {
+          $filePath = dirname(APP_PATH) . $url; // image_url เช่น /storage/uploads/areas/xxx.jpg
           if (is_file($filePath)) {
             @unlink($filePath);
           }
         }
       }
 
-      Database::execute('DELETE FROM property_images WHERE property_id = ?', [$propertyId]);
-      Database::execute('DELETE FROM bookings        WHERE property_id = ?', [$propertyId]);
-      Database::execute('DELETE FROM properties      WHERE id = ?',          [$propertyId]);
+      // FK cascade จะลบ area_image และ booking_deposit ให้อัตโนมัติ
+      Database::execute('DELETE FROM rental_area WHERE area_id = ?', [$areaId]);
 
       $message     = 'ลบพื้นที่เรียบร้อยแล้ว';
       $messageType = 'success';
-    } elseif ($action === 'update_property_status') {
-      $propertyId = (int) ($_POST['property_id'] ?? 0);
-      $status     = (string) ($_POST['status'] ?? 'available');
+    } elseif ($action === 'update_area_status') {
+      $areaId = (int) ($_POST['area_id'] ?? 0);
+      $status = (string) ($_POST['status'] ?? 'available');
 
-      $allowedStatus = ['available', 'booked', 'sold'];
+      $allowedStatus = ['available', 'booked', 'unavailable'];
       if (!in_array($status, $allowedStatus, true)) {
         $status = 'available';
       }
 
       Database::execute(
-        'UPDATE properties SET status = ? WHERE id = ?',
-        [$status, $propertyId]
+        'UPDATE rental_area SET area_status = ? WHERE area_id = ?',
+        [$status, $areaId]
       );
 
       $message     = 'อัปเดตสถานะพื้นที่เรียบร้อยแล้ว';
       $messageType = 'success';
-    } elseif ($action === 'update_booking_status') {
+    } elseif ($action === 'update_deposit_status') {
       $bookingId     = (int) ($_POST['booking_id'] ?? 0);
-      $bookingStatus = (string) ($_POST['booking_status'] ?? 'pending');
-      $paymentStatus = isset($_POST['payment_status']) ? (string) $_POST['payment_status'] : null;
+      $depositStatus = (string) ($_POST['deposit_status'] ?? 'pending');
 
-      if ($paymentStatus !== null) {
-        Database::execute(
-          'UPDATE bookings SET booking_status = ?, payment_status = ? WHERE id = ?',
-          [$bookingStatus, $paymentStatus, $bookingId]
-        );
-      } else {
-        Database::execute(
-          'UPDATE bookings SET booking_status = ? WHERE id = ?',
-          [$bookingStatus, $bookingId]
-        );
+      $allowed = ['pending', 'approved', 'rejected'];
+      if (!in_array($depositStatus, $allowed, true)) {
+        $depositStatus = 'pending';
       }
 
-      $message     = 'อัปเดตสถานะการจองเรียบร้อยแล้ว';
+      // อัปเดต booking_deposit
+      Database::execute(
+        'UPDATE booking_deposit SET deposit_status = ? WHERE booking_id = ?',
+        [$depositStatus, $bookingId]
+      );
+
+      // ปรับสถานะพื้นที่ให้สอดคล้อง
+      $b = Database::fetchOne('SELECT area_id FROM booking_deposit WHERE booking_id = ?', [$bookingId]);
+      $areaId = (int) ($b['area_id'] ?? 0);
+      if ($areaId > 0) {
+        if ($depositStatus === 'approved') {
+          Database::execute('UPDATE rental_area SET area_status = "booked" WHERE area_id = ?', [$areaId]);
+        } elseif ($depositStatus === 'rejected') {
+          Database::execute('UPDATE rental_area SET area_status = "available" WHERE area_id = ?', [$areaId]);
+        }
+      }
+
+      $message     = 'อัปเดตสถานะการมัดจำเรียบร้อยแล้ว';
       $messageType = 'success';
     } elseif ($action === 'delete_booking') {
       $bookingId = (int) ($_POST['booking_id'] ?? 0);
+      $b = Database::fetchOne('SELECT area_id FROM booking_deposit WHERE booking_id = ?', [$bookingId]);
+      $areaId = (int) ($b['area_id'] ?? 0);
 
-      Database::execute('DELETE FROM bookings WHERE id = ?', [$bookingId]);
+      Database::execute('DELETE FROM booking_deposit WHERE booking_id = ?', [$bookingId]);
+
+      if ($areaId > 0) {
+        Database::execute('UPDATE rental_area SET area_status = "available" WHERE area_id = ?', [$areaId]);
+      }
 
       $message     = 'ลบการจองเรียบร้อยแล้ว';
       $messageType = 'success';
@@ -192,14 +204,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $userIdToDelete = (int) ($_POST['user_id'] ?? 0);
 
       // กันลบตัวเอง
-      if ($userIdToDelete !== (int) $user['id']) {
-        Database::execute('DELETE FROM bookings WHERE user_id = ?', [$userIdToDelete]);
-        Database::execute('DELETE FROM users    WHERE id = ?',      [$userIdToDelete]);
+      if ($userIdToDelete !== (int) ($user['user_id'] ?? 0)) {
+        Database::execute('DELETE FROM users WHERE user_id = ?', [$userIdToDelete]);
 
         $message     = 'ลบผู้ใช้เรียบร้อยแล้ว';
         $messageType = 'success';
       } else {
         $message     = 'ไม่สามารถลบผู้ใช้ที่กำลังล็อกอินอยู่ได้';
+        $messageType = 'error';
+      }
+    } elseif ($action === 'add_fee') {
+      try {
+        $feeRate = (float) ($_POST['fee_rate'] ?? 0);
+        $accountNumber = trim((string) ($_POST['account_number'] ?? ''));
+        $accountName   = trim((string) ($_POST['account_name'] ?? ''));
+        $bankName      = trim((string) ($_POST['bank_name'] ?? ''));
+        $effectiveFrom = (string) ($_POST['effective_from'] ?? '');
+        $effectiveTo   = (string) ($_POST['effective_to'] ?? '');
+
+        if ($feeRate < 0 || $feeRate > 100 || $accountNumber === '' || $accountName === '' || $bankName === '' || $effectiveFrom === '') {
+          throw new RuntimeException('Invalid fee data');
+        }
+
+        Database::execute(
+          'INSERT INTO fee (fee_rate, account_number, account_name, bank_name, effective_from, effective_to) VALUES (?, ?, ?, ?, ?, NULLIF(?, ""))',
+          [$feeRate, $accountNumber, $accountName, $bankName, $effectiveFrom, $effectiveTo]
+        );
+
+        $message = 'บันทึกค่าธรรมเนียมสำเร็จ';
+        $messageType = 'success';
+      } catch (Throwable $e) {
+        app_log('admin_add_fee_error', ['error' => $e->getMessage()]);
+        $message = 'เกิดข้อผิดพลาดในการบันทึกค่าธรรมเนียม';
         $messageType = 'error';
       }
     }
@@ -225,7 +261,22 @@ if (isset($_GET['msg'])) {
 // ---------- ดึงข้อมูลล่าสุด ----------
 try {
   $recentProperties = Database::fetchAll(
-    'SELECT id, owner_id, title, location, province, price, status, created_at FROM properties ORDER BY created_at DESC LIMIT 10'
+    '
+      SELECT 
+        ra.area_id,
+        ra.user_id AS owner_id,
+        ra.area_name,
+        ra.price_per_year,
+        ra.area_status,
+        ra.created_at,
+        d.district_name,
+        p.province_name
+      FROM rental_area ra
+      LEFT JOIN district d ON ra.district_id = d.district_id
+      LEFT JOIN province p ON d.province_id = p.province_id
+      ORDER BY ra.created_at DESC
+      LIMIT 10
+    '
   );
 } catch (Throwable $e) {
   app_log('admin_recent_properties_error', ['error' => $e->getMessage()]);
@@ -235,18 +286,23 @@ try {
 try {
   $recentBookings = Database::fetchAll(
     '
-        SELECT 
-            bd.booking_id, bd.area_id, bd.user_id, bd.booking_date, bd.deposit_status,
-            bd.deposit_amount, bd.created_at,
-            ra.area_name,
-            u.username, 
-            u.full_name
-        FROM booking_deposit bd
-        LEFT JOIN rental_area ra ON bd.area_id = ra.area_id
-        LEFT JOIN users u ON bd.user_id = u.user_id
-        ORDER BY bd.created_at DESC
-        LIMIT 10
-        '
+      SELECT 
+        bd.booking_id,
+        bd.area_id,
+        bd.user_id,
+        bd.booking_date,
+        bd.deposit_status,
+        bd.deposit_amount,
+        bd.payment_slip,
+        bd.created_at,
+        ra.area_name,
+        u.full_name
+      FROM booking_deposit bd
+      LEFT JOIN rental_area ra ON bd.area_id = ra.area_id
+      LEFT JOIN users u ON bd.user_id = u.user_id
+      ORDER BY bd.created_at DESC
+      LIMIT 10
+    '
   );
 } catch (Throwable $e) {
   app_log('admin_recent_bookings_error', ['error' => $e->getMessage()]);
@@ -285,28 +341,28 @@ try {
       <div class="stat-icon">🏡</div>
       <div class="stat-info">
         <div class="stat-label">พื้นที่ทั้งหมด</div>
-        <div class="stat-value"><?= number_format($stats['total_properties']); ?></div>
+        <div class="stat-value"><?= number_format($stats['total_areas']); ?></div>
       </div>
     </div>
     <div class="stat-card available">
       <div class="stat-icon">✅</div>
       <div class="stat-info">
         <div class="stat-label">พื้นที่ว่าง</div>
-        <div class="stat-value"><?= number_format($stats['available_properties']); ?></div>
+        <div class="stat-value"><?= number_format($stats['available_areas']); ?></div>
       </div>
     </div>
     <div class="stat-card booked">
       <div class="stat-icon">📋</div>
       <div class="stat-info">
         <div class="stat-label">ติดจอง</div>
-        <div class="stat-value"><?= number_format($stats['booked_properties']); ?></div>
+        <div class="stat-value"><?= number_format($stats['booked_areas']); ?></div>
       </div>
     </div>
     <div class="stat-card sold">
       <div class="stat-icon">🔒</div>
       <div class="stat-info">
-        <div class="stat-label">ขายแล้ว</div>
-        <div class="stat-value"><?= number_format($stats['sold_properties']); ?></div>
+        <div class="stat-label">ปิดให้เช่า</div>
+        <div class="stat-value"><?= number_format($stats['unavailable_areas']); ?></div>
       </div>
     </div>
     <div class="stat-card">
@@ -344,13 +400,13 @@ try {
     <button class="tab-btn active" onclick="switchTab(event, 'properties')">🏡 จัดการพื้นที่</button>
     <button class="tab-btn" onclick="switchTab(event, 'bookings')">📋 จัดการการจอง</button>
     <button class="tab-btn" onclick="switchTab(event, 'users')">👥 จัดการผู้ใช้</button>
+    <button class="tab-btn" onclick="switchTab(event, 'settings')">⚙️ ตั้งค่า</button>
   </div>
 
   <!-- Tab: Properties -->
   <div id="tab-properties" class="tab-content active">
     <div class="section-header">
       <h2>รายการพื้นที่เกษตร</h2>
-      <a href="?page=add_property" class="btn btn-primary">+ เพิ่มพื้นที่ใหม่</a>
     </div>
     <div class="table-container">
       <table class="admin-table">
@@ -358,7 +414,7 @@ try {
           <tr>
             <th>ID</th>
             <th>ชื่อพื้นที่</th>
-            <th>ทำเล</th>
+            <th>อำเภอ</th>
             <th>จังหวัด</th>
             <th>ราคา/ปี</th>
             <th>สถานะ</th>
@@ -369,29 +425,29 @@ try {
         <tbody>
           <?php foreach ($recentProperties as $prop): ?>
             <tr>
-              <td><?= e((string) $prop['id']); ?></td>
-              <td><?= e((string) $prop['title']); ?></td>
-              <td><?= e((string) $prop['location']); ?></td>
-              <td><?= e((string) $prop['province']); ?></td>
-              <td>฿<?= number_format((float) $prop['price']); ?></td>
+              <td><?= e((string) $prop['area_id']); ?></td>
+              <td><?= e((string) $prop['area_name']); ?></td>
+              <td><?= e((string) ($prop['district_name'] ?? 'ไม่ระบุ')); ?></td>
+              <td><?= e((string) ($prop['province_name'] ?? 'ไม่ระบุ')); ?></td>
+              <td>฿<?= number_format((float) $prop['price_per_year']); ?></td>
               <td>
                 <form method="POST" style="display:inline;">
-                  <input type="hidden" name="action" value="update_property_status">
-                  <input type="hidden" name="property_id" value="<?= (int) $prop['id']; ?>">
+                  <input type="hidden" name="action" value="update_area_status">
+                  <input type="hidden" name="area_id" value="<?= (int) $prop['area_id']; ?>">
                   <select name="status" onchange="this.form.submit()" class="status-select">
-                    <option value="available" <?= $prop['status'] === 'available' ? 'selected' : ''; ?>>ว่าง</option>
-                    <option value="booked" <?= $prop['status'] === 'booked'    ? 'selected' : ''; ?>>ติดจอง</option>
-                    <option value="sold" <?= $prop['status'] === 'sold'      ? 'selected' : ''; ?>>ขายแล้ว</option>
+                    <option value="available" <?= $prop['area_status'] === 'available' ? 'selected' : ''; ?>>ว่าง</option>
+                    <option value="booked" <?= $prop['area_status'] === 'booked'    ? 'selected' : ''; ?>>ติดจอง</option>
+                    <option value="unavailable" <?= $prop['area_status'] === 'unavailable' ? 'selected' : ''; ?>>ปิดให้เช่า</option>
                   </select>
                 </form>
               </td>
               <td><?= date('d/m/Y H:i', strtotime((string) $prop['created_at'])); ?></td>
               <td class="actions">
-                <a href="?page=detail&id=<?= (int) $prop['id']; ?>" class="btn-action view" title="ดูรายละเอียด">👁️</a>
-                <a href="?page=edit_property&id=<?= (int) $prop['id']; ?>" class="btn-action edit" title="แก้ไข">✏️</a>
+                <a href="?page=detail&id=<?= (int) $prop['area_id']; ?>" class="btn-action view" title="ดูรายละเอียด">👁️</a>
+                <a href="?page=edit_property&id=<?= (int) $prop['area_id']; ?>" class="btn-action edit" title="แก้ไข">✏️</a>
                 <form method="POST" style="display:inline;" onsubmit="return confirm('ยืนยันการลบพื้นที่นี้?');">
-                  <input type="hidden" name="action" value="delete_property">
-                  <input type="hidden" name="property_id" value="<?= (int) $prop['id']; ?>">
+                  <input type="hidden" name="action" value="delete_area">
+                  <input type="hidden" name="area_id" value="<?= (int) $prop['area_id']; ?>">
                   <button type="submit" class="btn-action delete" title="ลบ">🗑️</button>
                 </form>
               </td>
@@ -421,8 +477,7 @@ try {
             <th>พื้นที่</th>
             <th>วันที่นัด</th>
             <th>มัดจำ</th>
-            <th>สถานะการจอง</th>
-            <th>สถานะชำระเงิน</th>
+            <th>สถานะมัดจำ</th>
             <th>วันที่จอง</th>
             <th>จัดการ</th>
           </tr>
@@ -439,7 +494,7 @@ try {
               <td>฿<?= number_format((float) $booking['deposit_amount']); ?></td>
               <td>
                 <form method="POST" style="display:inline;">
-                  <input type="hidden" name="action" value="update_booking_status">
+                  <input type="hidden" name="action" value="update_deposit_status">
                   <input type="hidden" name="booking_id" value="<?= (int) $booking['booking_id']; ?>">
                   <select name="deposit_status" onchange="this.form.submit()" class="status-select">
                     <option value="pending" <?= $booking['deposit_status'] === 'pending'   ? 'selected' : ''; ?>>รอดำเนินการ</option>
@@ -448,23 +503,11 @@ try {
                   </select>
                 </form>
               </td>
-              <td>
-                <form method="POST" style="display:inline;">
-                  <input type="hidden" name="action" value="update_booking_status">
-                  <input type="hidden" name="booking_id" value="<?= (int) $booking['id']; ?>">
-                  <input type="hidden" name="booking_status" value="<?= e((string) $booking['booking_status']); ?>">
-                  <select name="payment_status" onchange="this.form.submit()" class="status-select">
-                    <option value="waiting" <?= $booking['payment_status'] === 'waiting'         ? 'selected' : ''; ?>>รอชำระ</option>
-                    <option value="deposit_success" <?= $booking['payment_status'] === 'deposit_success' ? 'selected' : ''; ?>>ชำระมัดจำแล้ว</option>
-                    <option value="full_paid" <?= $booking['payment_status'] === 'full_paid'            ? 'selected' : ''; ?>>ชำระครบแล้ว</option>
-                  </select>
-                </form>
-              </td>
               <td><?= date('d/m/Y H:i', strtotime((string) $booking['created_at'])); ?></td>
               <td class="actions">
                 <form method="POST" style="display:inline;" onsubmit="return confirm('ยืนยันการลบการจองนี้?');">
                   <input type="hidden" name="action" value="delete_booking">
-                  <input type="hidden" name="booking_id" value="<?= (int) $booking['id']; ?>">
+                  <input type="hidden" name="booking_id" value="<?= (int) $booking['booking_id']; ?>">
                   <button type="submit" class="btn-action delete" title="ลบ">🗑️</button>
                 </form>
               </td>
@@ -491,7 +534,7 @@ try {
           <tr>
             <th>ID</th>
             <th>ชื่อ-นามสกุล</th>
-            <th>อีเมล</th>
+            <th>ชื่อผู้ใช้</th>
             <th>เบอร์โทร</th>
             <th>สิทธิ์</th>
             <th>วันที่สมัคร</th>
@@ -503,6 +546,7 @@ try {
             <tr>
               <td><?= e((string) $u['user_id']); ?></td>
               <td><?= e((string) $u['full_name']); ?></td>
+              <td><?= e((string) ($u['username'] ?? '')); ?></td>
               <td><?= e((string) ($u['phone'] ?? '')); ?></td>
               <td>
                 <span class="badge badge-<?= (int)($u['role'] ?? 0) === ROLE_ADMIN ? 'admin' : 'user'; ?>">
@@ -511,7 +555,7 @@ try {
               </td>
               <td><?= date('d/m/Y H:i', strtotime((string) $u['created_at'])); ?></td>
               <td class="actions">
-                <?php if ((int) $u['user_id'] !== (int) $user['user_id']): ?>
+                <?php if ((int) $u['user_id'] !== (int) ($user['user_id'] ?? 0)): ?>
                   <form method="POST" style="display:inline;" onsubmit="return confirm('ยืนยันการลบผู้ใช้นี้?');">
                     <input type="hidden" name="action" value="delete_user">
                     <input type="hidden" name="user_id" value="<?= (int) $u['user_id']; ?>">
@@ -531,6 +575,86 @@ try {
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Tab: Settings -->
+  <div id="tab-settings" class="tab-content">
+    <div class="section-header">
+      <h2>ตั้งค่าระบบ (ค่าธรรมเนียมและบัญชี)</h2>
+    </div>
+    <?php
+    try {
+      $fees = Database::fetchAll('SELECT fee_id, fee_rate, account_number, account_name, bank_name, effective_from, effective_to, created_at FROM fee ORDER BY effective_from DESC LIMIT 10');
+    } catch (Throwable $e) {
+      app_log('admin_fee_fetch_error', ['error' => $e->getMessage()]);
+      $fees = [];
+    }
+    ?>
+    <div class="table-container">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>ค่าธรรมเนียม (%)</th>
+            <th>เลขบัญชี</th>
+            <th>ชื่อบัญชี</th>
+            <th>ธนาคาร</th>
+            <th>มีผลตั้งแต่</th>
+            <th>ถึง</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($fees as $f): ?>
+            <tr>
+              <td><?= (int) $f['fee_id']; ?></td>
+              <td><?= number_format((float) $f['fee_rate'], 2); ?></td>
+              <td><?= e((string) $f['account_number']); ?></td>
+              <td><?= e((string) $f['account_name']); ?></td>
+              <td><?= e((string) $f['bank_name']); ?></td>
+              <td><?= e((string) $f['effective_from']); ?></td>
+              <td><?= e((string) ($f['effective_to'] ?? '-')); ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($fees)): ?>
+            <tr>
+              <td colspan="7" class="text-muted" style="text-align:center;">ยังไม่มีรายการค่าธรรมเนียม</td>
+            </tr>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-header">
+      <h3>เพิ่มค่าธรรมเนียมใหม่</h3>
+    </div>
+    <form method="POST" class="settings-form">
+      <input type="hidden" name="action" value="add_fee">
+      <div class="form-row">
+        <label>ค่าธรรมเนียม (%)</label>
+        <input type="number" step="0.01" min="0" max="100" name="fee_rate" required>
+      </div>
+      <div class="form-row">
+        <label>เลขบัญชี</label>
+        <input type="text" name="account_number" required>
+      </div>
+      <div class="form-row">
+        <label>ชื่อบัญชี</label>
+        <input type="text" name="account_name" required>
+      </div>
+      <div class="form-row">
+        <label>ธนาคาร</label>
+        <input type="text" name="bank_name" required>
+      </div>
+      <div class="form-row">
+        <label>มีผลตั้งแต่</label>
+        <input type="date" name="effective_from" required>
+      </div>
+      <div class="form-row">
+        <label>ถึง (ถ้ามี)</label>
+        <input type="date" name="effective_to">
+      </div>
+      <button type="submit" class="btn btn-primary">บันทึก</button>
+    </form>
   </div>
 </div>
 

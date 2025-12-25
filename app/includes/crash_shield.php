@@ -44,7 +44,13 @@ $__fallbackLogWrite = static function (string $tag, array $ctx = []) use ($__fal
 };
 
 // แสดง error ของหน้านั้นๆ
-$__renderFail = static function (string $title, string $message, string $refId, bool $json) use ($__safeHeader): void {
+$__clearBuffers = static function (): void {
+  while (ob_get_level() > 0) {
+    @ob_end_clean();
+  }
+};
+
+$__renderFail = static function (string $title, string $message, string $refId, bool $json) use ($__safeHeader, $__clearBuffers): void {
   if (!headers_sent()) {
     http_response_code(500);
     if ($json) {
@@ -57,9 +63,7 @@ $__renderFail = static function (string $title, string $message, string $refId, 
   }
 
   // ล้าง output buffer
-  while (ob_get_level() > 0) {
-    @ob_end_clean();
-  }
+  $__clearBuffers();
 
   // แสดง error เป็น JSON
   if ($json) {
@@ -95,7 +99,7 @@ set_error_handler(static function (int $severity, string $message, string $file,
 });
 
 // uncaught throwable
-set_exception_handler(static function (Throwable $e) use ($__fallbackLogWrite, $__renderFail, $__wantJson): void {
+set_exception_handler(static function (Throwable $e) use ($__fallbackLogWrite, $__renderFail, $__wantJson, $__clearBuffers): void {
   $isProd = function_exists('app_is_production') ? app_is_production() : true;
   $ref = bin2hex(random_bytes(4));
 
@@ -121,9 +125,7 @@ set_exception_handler(static function (Throwable $e) use ($__fallbackLogWrite, $
     if ($json) {
       $__renderFail('Error', (string)$e, $ref, true);
     } else {
-      while (ob_get_level() > 0) {
-        @ob_end_clean();
-      }
+      $__clearBuffers();
       http_response_code(500);
       @header('Content-Type: text/plain; charset=utf-8');
       echo (string)$e;
@@ -133,7 +135,7 @@ set_exception_handler(static function (Throwable $e) use ($__fallbackLogWrite, $
 });
 
 // fatal shutdown
-register_shutdown_function(static function () use ($__fallbackLogWrite, $__renderFail, $__wantJson): void {
+register_shutdown_function(static function () use ($__fallbackLogWrite, $__renderFail, $__wantJson, $__clearBuffers): void {
   $err = error_get_last();
   if (!$err) return;
 

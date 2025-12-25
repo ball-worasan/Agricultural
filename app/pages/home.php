@@ -29,24 +29,92 @@ if (!class_exists('Database')) {
 $user   = current_user();
 $userId = isset($user['user_id']) ? (int)$user['user_id'] : (isset($user['id']) ? (int)$user['id'] : null);
 
-if (!defined('PROPERTIES_PER_PAGE')) {
-  define('PROPERTIES_PER_PAGE', 24);
-}
+// ตั้งค่าจำนวนรายการต่อหน้าแบบยืดหยุ่น
+defined('PROPERTIES_PER_PAGE') || define('PROPERTIES_PER_PAGE', 12);
 
-$pgParam     = isset($_GET['pg']) ? (int)$_GET['pg'] : 1;
+// ฟังก์ชันช่วยโหลดข้อมูลแบบเป็นสัดส่วน
+$fetchTotalAreas = static function (): int {
+  try {
+    $row = Database::fetchOne("SELECT COUNT(*) AS cnt FROM rental_area");
+    return isset($row['cnt']) ? (int)$row['cnt'] : 0;
+  } catch (Throwable $e) {
+    app_log('home_count_error', ['message' => $e->getMessage()]);
+    return 0;
+  }
+};
+
+/**
+ * @return array<int, array<string, mixed>>
+ */
+$fetchAreasPage = static function (int $offset, int $limit): array {
+  try {
+    $pdo = Database::connection();
+
+    $sql = "
+      SELECT
+        ra.area_id,
+        ra.user_id,
+        ra.area_name,
+        ra.price_per_year,
+        ra.deposit_percent,
+        ra.area_size,
+        ra.area_status,
+        ra.district_id,
+        d.district_name,
+        p.province_name,
+        COALESCE(ai.image_url, '/images/placeholder.jpg') AS main_image
+      FROM rental_area ra
+      INNER JOIN district d ON d.district_id = ra.district_id
+      INNER JOIN province p ON p.province_id = d.province_id
+      LEFT JOIN (
+        SELECT area_id, MIN(image_id) AS min_img
+        FROM area_image
+        GROUP BY area_id
+      ) aim ON aim.area_id = ra.area_id
+      LEFT JOIN area_image ai ON ai.area_id = ra.area_id AND ai.image_id = aim.min_img
+      WHERE ra.area_status IN ('available', 'booked')
+      ORDER BY ra.area_id DESC
+      LIMIT :offset, :limit
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    if ($stmt === false) {
+      throw new RuntimeException('Failed to prepare home list query');
+    }
+
+    // ป้องกันค่าติดลบ/ผิดประเภท
+    $stmt->bindValue(':offset', max(0, (int)$offset), PDO::PARAM_INT);
+    $stmt->bindValue(':limit',  max(1, (int)$limit),  PDO::PARAM_INT);
+    $stmt->execute();
+
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return is_array($items) ? $items : [];
+  } catch (Throwable $e) {
+    app_log('home_page_query_error', ['message' => $e->getMessage()]);
+    return [];
+  }
+};
+
+$fetchLocations = static function (): array {
+  $provinces = [];
+  $districts = [];
+  try {
+    $provinces = Database::fetchAll('SELECT province_id, province_name FROM province ORDER BY province_name ASC');
+    $districts = Database::fetchAll('SELECT district_id, district_name, province_id FROM district ORDER BY district_name ASC');
+  } catch (Throwable $e) {
+    app_log('home_province_district_load_error', ['message' => $e->getMessage()]);
+  }
+  return [$provinces, $districts];
+};
+
+// รับ pg ด้วยฟิลเตอร์ และกำหนดค่าเริ่มต้น
+$pgParam = (int)(filter_input(INPUT_GET, 'pg', FILTER_VALIDATE_INT, [
+  'options' => ['min_range' => 1],
+]) ?? 1);
 $currentPage = $pgParam > 0 ? $pgParam : 1;
 $offset      = ($currentPage - 1) * PROPERTIES_PER_PAGE;
 
-$totalRow = 0;
-try {
-  $row = Database::fetchOne("SELECT COUNT(*) AS cnt FROM rental_area");
-  $totalRow = isset($row['cnt']) ? (int)$row['cnt'] : 0;
-} catch (Throwable $e) {
-  app_log('home_count_error', [
-    'message' => $e->getMessage(),
-  ]);
-  $totalRow = 0;
-}
+$totalRow = $fetchTotalAreas();
 
 $totalPages = max(1, (int)ceil($totalRow / PROPERTIES_PER_PAGE));
 if ($currentPage > $totalPages) {
@@ -54,67 +122,11 @@ if ($currentPage > $totalPages) {
   $offset = ($currentPage - 1) * PROPERTIES_PER_PAGE;
 }
 
-$items = [];
-
-try {
-  $limit  = (int)PROPERTIES_PER_PAGE;
-  $offset = max(0, (int)$offset);
-
-  $pdo = Database::connection();
-
-  // ดึงรายการพื้นที่เช่า พร้อมจังหวัด/อำเภอ + รูปแรก
-  $sql = "
-    SELECT
-      ra.area_id,
-      ra.user_id,
-      ra.area_name,
-      ra.price_per_year,
-      ra.deposit_percent,
-      ra.area_size,
-      ra.area_status,
-      ra.district_id,
-      d.district_name,
-      p.province_name,
-      COALESCE(ai.image_url, '/images/placeholder.jpg') AS main_image
-    FROM rental_area ra
-    INNER JOIN district d ON d.district_id = ra.district_id
-    INNER JOIN province p ON p.province_id = d.province_id
-    LEFT JOIN (
-      SELECT area_id, MIN(image_id) AS min_img
-      FROM area_image
-      GROUP BY area_id
-    ) aim ON aim.area_id = ra.area_id
-    LEFT JOIN area_image ai ON ai.area_id = ra.area_id AND ai.image_id = aim.min_img
-    ORDER BY ra.area_id DESC
-    LIMIT :offset, :limit
-  ";
-
-  $stmt = $pdo->prepare($sql);
-  if ($stmt === false) {
-    throw new RuntimeException('Failed to prepare home list query');
-  }
-
-  $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-  $stmt->bindValue(':limit',  $limit,  PDO::PARAM_INT);
-  $stmt->execute();
-
-  $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable $e) {
-  app_log('home_page_query_error', [
-    'message' => $e->getMessage(),
-  ]);
-  $items = [];
-}
+// โหลดรายการสำหรับหน้าปัจจุบัน
+$items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
 
 // รายชื่อจังหวัด/อำเภอจากฐานข้อมูล
-$provinces = [];
-$districts = [];
-try {
-  $provinces = Database::fetchAll('SELECT province_id, province_name FROM province ORDER BY province_name ASC');
-  $districts = Database::fetchAll('SELECT district_id, district_name, province_id FROM district ORDER BY district_name ASC');
-} catch (Throwable $e) {
-  app_log('home_province_district_load_error', ['message' => $e->getMessage()]);
-}
+[$provinces, $districts] = $fetchLocations();
 
 ?>
 <div class="home-container" data-page="home">
@@ -186,14 +198,21 @@ try {
         $depositRaw = (int)round($priceRaw * $depositPct / 100.0);
         $areaStatus = isset($item['area_status']) ? (string)$item['area_status'] : '';
 
-        $isBooked = (mb_strpos($areaStatus, 'ติดจอง') !== false);
+        // เช็คสถานะตาม enum ใน database: 'available', 'booked', 'unavailable'
+        $isBooked = ($areaStatus === 'booked');
         $ownerId  = isset($item['user_id']) ? (int)$item['user_id'] : null;
         $isOwner  = ($userId !== null && $ownerId !== null && $ownerId === $userId);
 
         $cardClass = $isBooked ? 'item-card booked' : 'item-card';
 
-        $mainImage = (string)($item['main_image'] ?? '/images/placeholder.jpg');
-        if ($mainImage === '') $mainImage = '/images/placeholder.jpg';
+        // ตรวจสอบรูปภาพและใช้ SVG placeholder ถ้าไม่มีรูป
+        $mainImage = (string)($item['main_image'] ?? '');
+        $svgPlaceholder = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"%3E%3Crect fill="%23f0f0f0" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999" font-size="24"%3ENo Image%3C/text%3E%3C/svg%3E';
+
+        // ถ้าไม่มีรูปหรือเป็น placeholder.jpg ให้ใช้ SVG
+        if ($mainImage === '' || $mainImage === '/images/placeholder.jpg' || stripos((string)$mainImage, 'placeholder') !== false) {
+          $mainImage = $svgPlaceholder;
+        }
 
         // ไม่มี created_at ในสคีมาใหม่ แสดงวันที่เป็น '-' และใช้ไม่สำหรับ sort
         $dataDate    = '1970-01-01';

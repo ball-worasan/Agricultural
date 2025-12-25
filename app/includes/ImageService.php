@@ -14,6 +14,15 @@ class ImageService
   private const THUMBNAIL_HEIGHT = 300;
   private const QUALITY = 85;
 
+  private static function ensureDirectory(string $path): bool
+  {
+    if (is_dir($path)) {
+      return true;
+    }
+
+    return mkdir($path, 0755, true);
+  }
+
   /**
    * Resize และ optimize รูปภาพ
    */
@@ -53,6 +62,10 @@ class ImageService
 
     // สร้างรูปภาพใหม่
     $destination = imagecreatetruecolor($newWidth, $newHeight);
+    if ($destination === false) {
+      unset($source);
+      return false;
+    }
 
     // รองรับ PNG และ WebP ที่มี transparency
     if ($imageType === IMAGETYPE_PNG || $imageType === IMAGETYPE_WEBP) {
@@ -73,6 +86,8 @@ class ImageService
       default => false,
     };
 
+    unset($destination, $source);
+
     return $success !== false;
   }
 
@@ -89,27 +104,30 @@ class ImageService
    */
   public static function uploadAndProcess(array $file, string $uploadDir, string $filename): ?string
   {
-    if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+    $tmpPath = $file['tmp_name'] ?? null;
+    if (!is_string($tmpPath) || !is_uploaded_file($tmpPath)) {
       return null;
     }
 
-    if (!is_dir($uploadDir)) {
-      if (!mkdir($uploadDir, 0755, true)) {
-        return null;
-      }
+    if (isset($file['error']) && $file['error'] !== UPLOAD_ERR_OK) {
+      return null;
     }
 
-    $destinationPath = $uploadDir . '/' . $filename;
+    if (!self::ensureDirectory($uploadDir)) {
+      return null;
+    }
+
+    $destinationPath = rtrim($uploadDir, "/\\") . '/' . $filename;
 
     // ลองใช้ ImageService ถ้า GD library พร้อม
     if (extension_loaded('gd')) {
-      if (self::processImage($file['tmp_name'], $destinationPath)) {
+      if (self::processImage($tmpPath, $destinationPath)) {
         return $destinationPath;
       }
     }
 
     // Fallback: Copy ไฟล์โดยตรง (ไม่ resize)
-    if (copy($file['tmp_name'], $destinationPath)) {
+    if (copy($tmpPath, $destinationPath)) {
       return $destinationPath;
     }
 

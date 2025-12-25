@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  const root = document.querySelector(".history-container");
+
   const statusFilter = document.getElementById("statusFilter");
   const textFilter = document.getElementById("textFilter");
   const cardItems = Array.from(
@@ -39,7 +41,7 @@
 
   document.querySelectorAll(".action-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (btn.classList.contains("disabled")) return;
+      if (btn.classList.contains("disabled") || btn.disabled) return;
 
       const action = btn.dataset.action;
       const id = btn.dataset.id;
@@ -53,29 +55,51 @@
           return;
         }
 
+        btn.disabled = true;
+        btn.classList.add("disabled");
+
         try {
           const body = new URLSearchParams({
             action: "cancel_booking",
             booking_id: String(id),
-            csrf: window.APP?.csrf || "",
           });
 
           const res = await fetch(`?page=history&action=cancel_booking`, {
             method: "POST",
+            headers: {
+              "Content-Type":
+                "application/x-www-form-urlencoded; charset=UTF-8",
+              "X-Requested-With": "XMLHttpRequest",
+              Accept: "application/json",
+            },
             body: body.toString(),
           });
 
-          const data = await res.json();
+          let data;
+          const text = await res.text();
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = {
+              success: false,
+              message: text || "ไม่สามารถประมวลผลคำตอบได้",
+            };
+          }
 
-          if (data.success) {
+          if (res.ok && data?.success) {
             alert(data.message || "ยกเลิกการจองสำเร็จ");
             window.location.reload();
-          } else {
-            alert("เกิดข้อผิดพลาด: " + (data.message || "ไม่สามารถยกเลิกได้"));
+            return;
           }
+
+          const msg = data?.message || `คำขอล้มเหลว (${res.status})`;
+          alert("เกิดข้อผิดพลาด: " + msg);
         } catch (err) {
           console.error(err);
           alert("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+        } finally {
+          btn.disabled = false;
+          btn.classList.remove("disabled");
         }
       } else if (action === "view") {
         window.location = `?page=detail&id=${encodeURIComponent(id)}`;

@@ -61,6 +61,12 @@ if ($user === null) {
   redirect('?page=signin');
 }
 
+// แอดมินไม่สามารถเพิ่มพื้นที่ได้
+if ((int) ($user['role'] ?? 0) === ROLE_ADMIN) {
+  flash('error', 'ผู้ดูแลระบบไม่สามารถเพิ่มพื้นที่ได้');
+  redirect('?page=admin_dashboard');
+}
+
 $userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('add_property_invalid_user', ['session_user' => $user]);
@@ -83,6 +89,38 @@ try {
 }
 
 // ----------------------------
+// Constants & Helpers
+// ----------------------------
+define('MAX_PRICE_PER_YEAR', 999999.99);
+define('MAX_IMAGES', 10);
+define('MAX_IMAGE_SIZE', 5 * 1024 * 1024);
+
+$validateAreaSize = static function (int $rai, int $ngan, int $sqwa): array {
+  if ($rai < 0 || $ngan < 0 || $sqwa < 0) {
+    return ['valid' => false, 'message' => 'ขนาดพื้นที่ต้องไม่ติดลบ'];
+  }
+  if ($ngan > 99 || $sqwa > 99) {
+    return ['valid' => false, 'message' => 'งานและตารางวาต้องไม่เกิน 99'];
+  }
+  $size = (float)$rai + ($ngan / 4.0) + ($sqwa / 400.0);
+  return ['valid' => true, 'size' => $size];
+};
+
+$validatePrice = static function (string $priceStr): array {
+  if ($priceStr === '' || !is_numeric($priceStr)) {
+    return ['valid' => false, 'message' => 'กรุณากรอกราคาที่ถูกต้อง'];
+  }
+  $price = (float)$priceStr;
+  if ($price < 0) {
+    return ['valid' => false, 'message' => 'ราคาต้องไม่ติดลบ'];
+  }
+  if ($price > MAX_PRICE_PER_YEAR) {
+    return ['valid' => false, 'message' => 'ราคาต้องไม่เกิน ' . number_format(MAX_PRICE_PER_YEAR, 2) . ' บาท'];
+  }
+  return ['valid' => true, 'price' => $price];
+};
+
+// ----------------------------
 // Initialize variables
 // ----------------------------
 $errors = [];
@@ -101,41 +139,42 @@ try {
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-  csrf_require(); // ✅ CSRF ทุก POST
-
   $title        = trim((string)($_POST['title'] ?? ''));
-  $provinceId   = (int)($_POST['province'] ?? 0);
-  $districtId   = (int)($_POST['district'] ?? 0);
-  $area_rai     = max(0, (int)($_POST['area_rai'] ?? 0));
-  $area_ngan    = max(0, (int)($_POST['area_ngan'] ?? 0));
-  $area_sqwa    = max(0, (int)($_POST['area_sqwa'] ?? 0));
+  $provinceId   = filter_input(INPUT_POST, 'province', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?? 0;
+  $districtId   = filter_input(INPUT_POST, 'district', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?? 0;
+  $area_rai     = filter_input(INPUT_POST, 'area_rai', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) ?? 0;
+  $area_ngan    = filter_input(INPUT_POST, 'area_ngan', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 99]]) ?? 0;
+  $area_sqwa    = filter_input(INPUT_POST, 'area_sqwa', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 99]]) ?? 0;
   $priceRaw     = trim((string)($_POST['price'] ?? ''));
-  // กำหนดมัดจำคงที่ 10% (ไม่รับจากฟอร์ม)
   $depositPercent = 10.0;
 
-  if ($title === '')            $errors[] = 'กรุณากรอกชื่อพื้นที่';
-  if ($provinceId <= 0)         $errors[] = 'กรุณาเลือกจังหวัด';
-  if ($districtId <= 0)         $errors[] = 'กรุณาเลือกอำเภอ';
+  // Validate
+  if ($title === '' || mb_strlen($title) > 255) $errors[] = 'กรุณากรอกชื่อพื้นที่ (ไม่เกิน 255 ตัวอักษร)';
+  if ($provinceId <= 0) $errors[] = 'กรุณาเลือกจังหวัด';
+  if ($districtId <= 0) $errors[] = 'กรุณาเลือกอำเภอ';
 
-  $price = 0.0;
-  if ($priceRaw === '' || !is_numeric($priceRaw)) {
-    $errors[] = 'กรุณากรอกราคาที่ถูกต้อง';
+  $priceValidation = $validatePrice($priceRaw);
+  if (!$priceValidation['valid']) {
+    $errors[] = $priceValidation['message'];
+    $price = 0.0;
   } else {
-    $price = (float)$priceRaw;
-    if ($price < 0) $errors[] = 'ราคาต้องไม่ติดลบ';
+    $price = (float)$priceValidation['price'];
   }
 
-  // ไม่ต้อง validate มัดจำ เนื่องจากกำหนดค่าคงที่ไว้แล้ว
-
-  // คำนวณขนาดพื้นที่เป็นหน่วย "ไร่" แบบทศนิยม
-  $area_size = (float)$area_rai + ($area_ngan / 4.0) + ($area_sqwa / 400.0);
+  $areaSizeValidation = $validateAreaSize($area_rai, $area_ngan, $area_sqwa);
+  if (!$areaSizeValidation['valid']) {
+    $errors[] = $areaSizeValidation['message'];
+    $area_size = 0.0;
+  } else {
+    $area_size = (float)$areaSizeValidation['size'];
+  }
 
   // upload
   $uploadedImages = [];
   if (isset($_FILES['images']) && !empty($_FILES['images']['name'][0])) {
     $imageCount = count($_FILES['images']['name']);
-    if ($imageCount > 10) {
-      $errors[] = 'สามารถอัปโหลดรูปภาพได้สูงสุด 10 รูป';
+    if ($imageCount > MAX_IMAGES) {
+      $errors[] = 'สามารถอัปโหลดรูปภาพได้สูงสุด ' . MAX_IMAGES . ' รูป';
     } else {
       $projectRoot = defined('BASE_PATH')
         ? rtrim((string) BASE_PATH, '/')
@@ -173,19 +212,28 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
           $name = (string)($_FILES['images']['name'][$i] ?? '');
           $size = (int)($_FILES['images']['size'][$i] ?? 0);
 
-          if ($size > 5 * 1024 * 1024) {
-            $errors[] = "รูปภาพ {$name} มีขนาดใหญ่เกิน 5MB";
+          if ($size > MAX_IMAGE_SIZE) {
+            $errors[] = sprintf('รูปภาพ %s มีขนาดใหญ่เกิน %dMB', e($name), MAX_IMAGE_SIZE / 1024 / 1024);
             continue;
           }
 
           $ext = strtolower((string)pathinfo($name, PATHINFO_EXTENSION));
           if (!in_array($ext, $allowedExt, true)) {
-            $errors[] = "รูปภาพ {$name} ไม่ใช่ไฟล์รูปภาพที่รองรับ";
+            $errors[] = sprintf('รูปภาพ %s ไม่ใช่ไฟล์รูปภาพที่รองรับ', e($name));
             continue;
           }
 
           if (!is_uploaded_file($tmp)) {
-            $errors[] = "ไฟล์ {$name} ไม่ได้ถูกอัปโหลดผ่านฟอร์มอย่างถูกต้อง";
+            $errors[] = sprintf('ไฟล์ %s ไม่ได้ถูกอัปโหลดผ่านฟอร์มอย่างถูกต้อง', e($name));
+            continue;
+          }
+
+          // Verify MIME type
+          $finfo = finfo_open(FILEINFO_MIME_TYPE);
+          $mime = finfo_file($finfo, $tmp);
+          $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+          if (!in_array($mime, $allowedMimes, true)) {
+            $errors[] = sprintf('ไฟล์ %s ไม่ใช่รูปภาพที่รองรับ', e($name));
             continue;
           }
 
@@ -223,7 +271,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             ]);
             // Fallback: อัปโหลดแบบเดิม
             if (move_uploaded_file($tmp, $dest)) {
-              $uploadedImages[] = '/public/storage/uploads/areas/' . $newName;
+              $uploadedImages[] = '/storage/uploads/areas/' . $newName;
             } else {
               $errors[] = "ไม่สามารถอัปโหลดรูปภาพ {$name} ได้";
             }
@@ -310,7 +358,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   <?php endif; ?>
 
   <form method="POST" enctype="multipart/form-data" class="property-form">
-    <input type="hidden" name="csrf" value="<?= e(csrf_token()); ?>">
 
     <div class="form-section">
       <h2 class="section-title">ข้อมูลพื้นฐาน</h2>
@@ -380,7 +427,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="price">ราคาเช่าต่อปี (บาท) <span class="required">*</span></label>
-          <input id="price" name="price" type="number" min="0" step="0.01" required placeholder="เช่น 15000" value="<?= e($_POST['price'] ?? '') ?>">
+          <input id="price" name="price" type="number" min="0" max="999999.99" step="0.01" required placeholder="เช่น 15000" value="<?= e($_POST['price'] ?? '') ?>">
+          <small class="text-note">ราคาสูงสุด 999,999.99 บาท</small>
         </div>
       </div>
 
@@ -391,10 +439,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <h2 class="section-title">รูปภาพพื้นที่ (สูงสุด 10 รูป)</h2>
 
       <div class="upload-area">
-        <input id="images" name="images[]" type="file" multiple accept="image/*" onchange="previewImages(event)" style="display:none;">
+        <input id="images" name="images[]" type="file" multiple accept="image/*" style="display:none;">
         <label for="images" class="upload-label">
           <div class="upload-text">คลิกเพื่อเลือกรูปภาพ</div>
-          <div class="upload-hint">ไฟล์ละไม่เกิน 5MB</div>
+          <div class="upload-hint">ไฟล์ละไม่เกิน 5MB (สูงสุด 10 รูป)</div>
         </label>
       </div>
 

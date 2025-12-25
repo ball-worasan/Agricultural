@@ -67,17 +67,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
   redirect('?page=my_properties');
 }
 
-// ----------------------------
-// CSRF protection
-// ----------------------------
-try {
-  csrf_require();
-} catch (Throwable $e) {
-  app_log('delete_property_csrf_error', ['error' => $e->getMessage()]);
-  flash('error', 'คำขอไม่ถูกต้อง (CSRF)');
-  redirect('?page=my_properties');
-}
-
 $areaId = (int)($_POST['area_id'] ?? 0);
 if ($areaId <= 0) {
   flash('error', 'ไม่พบข้อมูลพื้นที่ที่ต้องการลบ');
@@ -106,8 +95,8 @@ try {
     [$areaId]
   );
 
-  // ✅ โฟลเดอร์ไฟล์จริงอยู่ใต้ public
-  $publicRoot = APP_PATH . '/public';
+  // ✅ โฟลเดอร์ไฟล์จริงอยู่ใต้ public (ใช้ BASE_PATH)
+  $publicRoot = BASE_PATH . '/public';
 
   // ✅ allowlist: ลบได้เฉพาะไฟล์ใน /storage/uploads/
   $allowedPrefix = '/storage/uploads/';

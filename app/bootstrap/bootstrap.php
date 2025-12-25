@@ -12,19 +12,19 @@ if (!defined('APP_PATH')) {
     define('APP_PATH', BASE_PATH . '/app');
 }
 
+$requireFile = static function (string $path, string $label): void {
+    if (!is_file($path)) {
+        throw new RuntimeException($label . ' not found: ' . $path);
+    }
+
+    require_once $path;
+};
+
 // Load constants
-$constantsFile = APP_PATH . '/config/constants.php';
-if (!is_file($constantsFile)) {
-    throw new RuntimeException('Constants file not found: ' . $constantsFile);
-}
-require_once $constantsFile;
+$requireFile(APP_PATH . '/config/constants.php', 'Constants file');
 
 // Load helpers
-$helpersFile = APP_PATH . '/includes/helpers.php';
-if (!is_file($helpersFile)) {
-    throw new RuntimeException('Helpers file not found: ' . $helpersFile);
-}
-require_once $helpersFile;
+$requireFile(APP_PATH . '/includes/helpers.php', 'Helpers file');
 
 // Error reporting (หลัง crash shield แล้ว)
 $isProduction = function_exists('app_is_production') ? app_is_production() : true;
@@ -59,22 +59,14 @@ try {
 }
 
 // โหลดไฟล์ routes
-$routesFile = APP_PATH . '/config/routes.php';
-if (!is_file($routesFile)) {
-    throw new RuntimeException('Routes file not found: ' . $routesFile);
-}
-$routes = require $routesFile;
+$routes = require APP_PATH . '/config/routes.php';
 if (!is_array($routes)) {
     throw new RuntimeException('Routes must return array');
 }
 
-// จัดการการออกจากระบบ (CSRF-safe)
+// จัดการการออกจากระบบ
 try {
     if (is_logout_request()) {
-        if (!verify_csrf_token(request_csrf_token())) {
-            flash('error', 'คำขอไม่ถูกต้อง (CSRF)');
-            redirect('?page=home');
-        }
         handle_logout(); // จะ redirect/exit เองตามของคุณ
     }
 } catch (Throwable $e) {

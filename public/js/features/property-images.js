@@ -6,7 +6,6 @@
   class PropertyImagesManager {
     constructor() {
       this.root = document.body;
-      this.csrf = this.root ? this.root.getAttribute("data-csrf") || "" : "";
       this.propertyId = this.root
         ? parseInt(this.root.getAttribute("data-property-id") || "0", 10)
         : 0;
@@ -131,15 +130,6 @@
         return;
       }
 
-      if (!this.csrf) {
-        App.showToast(
-          "ข้อผิดพลาด",
-          "CSRF หาย (ตั้ง data-csrf ให้ด้วย)",
-          "error"
-        );
-        return;
-      }
-
       App.confirmDialog(
         "ยืนยันการลบ",
         "คุณต้องการลบรูปภาพนี้ใช่หรือไม่?",
@@ -148,7 +138,6 @@
           fd.append("action", "delete_image");
           fd.append("image_id", String(imageId));
           fd.append("property_id", String(this.propertyId));
-          fd.append("csrf", this.csrf);
 
           fetch(this.deleteEndpoint, { method: "POST", body: fd })
             .then((res) =>

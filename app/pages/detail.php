@@ -50,41 +50,84 @@ try {
 }
 
 // ----------------------------
-// ดึงโทเคน CSRF
-// ----------------------------
-$csrfToken = csrf_token();
 
-// ----------------------------
 // ตรวจสอบรหัสพื้นที่
 // ----------------------------
-$id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+$id = (int)(filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT, [
+  'options' => ['min_range' => 1],
+]) ?? 0);
 if ($id <= 0) {
   flash('error', 'ไม่พบข้อมูลพื้นที่ที่ต้องการ');
   redirect('?page=home');
 }
 
 // ----------------------------
+// Helper functions
+// ----------------------------
+$fetchArea = static function (int $areaId): ?array {
+  try {
+    $row = Database::fetchOne(
+      'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.area_status,
+              d.district_name, p.province_name
+       FROM rental_area ra
+       JOIN district d ON ra.district_id = d.district_id
+       JOIN province p ON d.province_id = p.province_id
+       WHERE ra.area_id = ?
+       LIMIT 1',
+      [$areaId]
+    );
+    return $row ?: null;
+  } catch (Throwable $e) {
+    app_log('property_detail_fetch_error', [
+      'area_id' => $areaId,
+      'error'   => $e->getMessage(),
+      'trace'   => $e->getTraceAsString(),
+    ]);
+    return null;
+  }
+};
+
+$fetchAreaImages = static function (int $areaId): array {
+  try {
+    $images = Database::fetchAll(
+      'SELECT image_url FROM area_image WHERE area_id = ? ORDER BY image_id',
+      [$areaId]
+    );
+    $urls = array_values(array_filter(array_map(
+      static fn($v) => is_string($v) ? trim($v) : '',
+      array_column($images, 'image_url')
+    )));
+    return $urls;
+  } catch (Throwable $e) {
+    app_log('property_detail_fetch_images_error', [
+      'area_id' => $areaId,
+      'error'   => $e->getMessage(),
+    ]);
+    return [];
+  }
+};
+
+$fetchUserPhone = static function (int $userId): ?string {
+  try {
+    $userRow = Database::fetchOne(
+      'SELECT phone FROM users WHERE user_id = ? LIMIT 1',
+      [$userId]
+    );
+    $phone = $userRow['phone'] ?? null;
+    return is_string($phone) && trim($phone) !== '' ? trim($phone) : null;
+  } catch (Throwable $e) {
+    app_log('property_detail_fetch_user_phone_error', [
+      'user_id' => $userId,
+      'error'   => $e->getMessage(),
+    ]);
+    return null;
+  }
+};
+
+// ----------------------------
 // ดึงข้อมูลพื้นที่แบบกันพลาด
 // ----------------------------
-$item = null;
-try {
-  $item = Database::fetchOne(
-    'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.area_status,
-            d.district_name, p.province_name
-     FROM rental_area ra
-     JOIN district d ON ra.district_id = d.district_id
-     JOIN province p ON d.province_id = p.province_id
-     WHERE ra.area_id = ?
-     LIMIT 1',
-    [$id]
-  );
-} catch (Throwable $e) {
-  app_log('property_detail_fetch_error', [
-    'area_id' => $id,
-    'error'   => $e->getMessage(),
-    'trace'   => $e->getTraceAsString(),
-  ]);
-}
+$item = $fetchArea($id);
 
 if (!$item) {
   flash('error', 'ไม่พบข้อมูลพื้นที่ที่ต้องการ');
@@ -94,27 +137,12 @@ if (!$item) {
 // ----------------------------
 // ดึงรูปพื้นที่แบบกันพลาด
 // ----------------------------
-$imageUrls = [];
-try {
-  $images = Database::fetchAll(
-    'SELECT image_url FROM area_image WHERE area_id = ? ORDER BY image_id',
-    [$id]
-  );
-  $imageUrls = array_values(array_filter(array_map(
-    fn($v) => is_string($v) ? trim($v) : '',
-    array_column($images, 'image_url')
-  )));
-} catch (Throwable $e) {
-  app_log('property_detail_fetch_images_error', [
-    'area_id' => $id,
-    'error'   => $e->getMessage(),
-  ]);
-  $imageUrls = [];
-}
+$imageUrls = $fetchAreaImages($id);
 
-// ถ้ายังไม่มีให้ใช้ placeholder
+// ถ้ายังไม่มีให้ใช้ SVG placeholder
 if (empty($imageUrls)) {
-  $imageUrls = ['https://via.placeholder.com/800x600?text=No+Image'];
+  $svgPlaceholder = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"%3E%3Crect fill="%23f0f0f0" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999" font-size="24"%3ENo Image%3C/text%3E%3C/svg%3E';
+  $imageUrls = [$svgPlaceholder];
 }
 
 // กำหนดสถานะ
@@ -130,8 +158,21 @@ $statusClass = [
   'unavailable' => 'status-unavailable',
 ];
 
-$rawStatus      = (string) ($item['area_status'] ?? 'available');
-$currentStatus  = array_key_exists($rawStatus, $statusText) ? $rawStatus : 'available';
+$rawStatus = (string)($item['area_status'] ?? 'available');
+// รองรับกรณีสถานะเป็นข้อความไทยในบางชุดข้อมูล
+if (!array_key_exists($rawStatus, $statusText)) {
+  $rawLower = mb_strtolower($rawStatus);
+  if (mb_strpos($rawLower, 'จอง') !== false) {
+    $rawStatus = 'booked';
+  } elseif (mb_strpos($rawLower, 'พร้อม') !== false) {
+    $rawStatus = 'available';
+  } elseif (mb_strpos($rawLower, 'ปิด') !== false) {
+    $rawStatus = 'unavailable';
+  } else {
+    $rawStatus = 'available';
+  }
+}
+$currentStatus = $rawStatus;
 
 // คำนวณมัดจำ / ราคา
 $priceRaw       = (float) ($item['price_per_year'] ?? 0);
@@ -142,6 +183,7 @@ $priceFormatted = number_format($priceRaw, 2);
 
 // ตรวจสอบว่าเป็นเจ้าของหรือไม่ + เตรียมข้อมูล user ที่ล็อกอิน
 $isOwner       = false;
+$isAdmin       = false;
 $loggedInUser  = current_user();
 $userFullName  = 'ไม่ระบุ';
 $userPhoneText = 'ไม่ระบุ';
@@ -150,6 +192,8 @@ if ($loggedInUser !== null) {
   $currentUserId = (int) ($loggedInUser['user_id'] ?? $loggedInUser['id'] ?? 0);
   $ownerId       = (int) ($item['user_id'] ?? 0);
   $isOwner       = $currentUserId > 0 && $currentUserId === $ownerId;
+  $userRole      = (int) ($loggedInUser['role'] ?? 0);
+  $isAdmin       = ($userRole === ROLE_ADMIN);
 
   $fullName = (string) ($loggedInUser['full_name'] ?? '');
   $userFullName = $fullName !== '' ? $fullName : 'ไม่ระบุ';
@@ -158,19 +202,9 @@ if ($loggedInUser !== null) {
   if (is_string($phoneFromSession) && trim($phoneFromSession) !== '') {
     $userPhoneText = trim($phoneFromSession);
   } elseif ($currentUserId > 0) {
-    try {
-      $userRow = Database::fetchOne(
-        'SELECT phone FROM users WHERE user_id = ? LIMIT 1',
-        [$currentUserId]
-      );
-      if ($userRow && !empty($userRow['phone'])) {
-        $userPhoneText = (string) $userRow['phone'];
-      }
-    } catch (Throwable $e) {
-      app_log('property_detail_fetch_user_phone_error', [
-        'user_id' => $currentUserId,
-        'error'   => $e->getMessage(),
-      ]);
+    $fromDb = $fetchUserPhone($currentUserId);
+    if ($fromDb !== null) {
+      $userPhoneText = $fromDb;
     }
   }
 }
@@ -190,8 +224,8 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
   class="detail-container compact"
   data-images='<?= e(json_encode($imageUrls, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>'
   data-area-id="<?= (int)$id; ?>"
-  data-csrf="<?= e($csrfToken); ?>"
-  data-status="<?= e($currentStatus); ?>">
+  data-status="<?= e($currentStatus); ?>"
+  data-is-admin="<?= $isAdmin ? '1' : '0'; ?>">
   <div class="detail-wrapper">
     <div class="detail-topbar">
       <a href="?page=home" class="back-button minimal" aria-label="กลับหน้ารายการ">ย้อนกลับ</a>
@@ -337,6 +371,14 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
                 <span>แก้ไขรายการ</span>
+              </a>
+
+            <?php elseif ($isAdmin): ?>
+              <div class="admin-notice" style="padding: 0.75rem 1rem; background: rgba(102, 126, 234, 0.15); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: var(--radius-sm); color: var(--primary-color); font-size: 0.9rem; margin-top: 0.8rem;">
+                👤 ผู้ดูแลระบบไม่สามารถจองไได้ (ดูแลเพาะจัดการ)
+              </div>
+              <a href="?page=admin_dashboard" class="btn-book" style="background: var(--text-secondary); margin-top: 0.5rem;">
+                ⚙️ ไปยังแดชบอร์ดแอดมิน
               </a>
 
             <?php elseif ($currentStatus === 'available'): ?>
