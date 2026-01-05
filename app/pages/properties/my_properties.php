@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('my_properties_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -156,7 +156,6 @@ $statusClass = [
       </svg>
       <h3>ยังไม่มีรายการ</h3>
       <p>เริ่มต้นปล่อยเช่าพื้นที่ของคุณ</p>
-      <a href="?page=add_property" class="btn-add-first">เพิ่มรายการแรก</a>
     </div>
   <?php else: ?>
     <div class="properties-grid">
@@ -278,27 +277,31 @@ $statusClass = [
                 <?php endif; ?>
               </a>
 
-              <a href="?page=edit_property&id=<?= $areaId; ?>" class="btn-action edit">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-                <span>แก้ไข</span>
-              </a>
+              <?php if (!in_array($statusKey, ['booked', 'unavailable'], true)): ?>
+                <a href="?page=edit_property&id=<?= $areaId; ?>" class="btn-action edit">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                  <span>แก้ไข</span>
+                </a>
+              <?php endif; ?>
 
-              <button
-                type="button"
-                class="btn-action delete js-delete-area"
-                data-area-id="<?= $areaId; ?>"
-                data-area-name="<?= e($area['area_name']); ?>">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                  <line x1="10" y1="11" x2="10" y2="17"></line>
-                  <line x1="14" y1="11" x2="14" y2="17"></line>
-                </svg>
-                <span>ลบ</span>
-              </button>
+              <?php if (!in_array($statusKey, ['booked', 'unavailable'], true)): ?>
+                <button
+                  type="button"
+                  class="btn-action delete js-delete-area"
+                  data-area-id="<?= $areaId; ?>"
+                  data-area-name="<?= e($area['area_name']); ?>">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                  </svg>
+                  <span>ลบ</span>
+                </button>
+              <?php endif; ?>
             </div>
           </div>
         </div>

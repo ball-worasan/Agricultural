@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__) . '/config/Database.php';
+require_once dirname(__DIR__) . '/config/database.php';
 
 function envString(string $key, string $default = ''): string
 {

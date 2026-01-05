@@ -151,29 +151,23 @@
       var payload = null;
       var text = await res.text();
       try {
-        payload = JSON.parse(text);
+        payload = text ? JSON.parse(text) : null;
       } catch (_) {
         payload = null;
       }
 
-      if (!res.ok) {
-        var serverMsg =
-          payload && payload.message ? payload.message : "HTTP " + res.status;
-        throw new Error(serverMsg);
-      }
-
-      if (!payload || payload.success !== true) {
-        var msg =
-          payload && payload.message ? payload.message : "ลบรูปภาพไม่สำเร็จ";
-        alert(msg);
-        return;
+      // ถือว่าสำเร็จถ้า HTTP 2xx แม้ payload ว่าง (ลด false error เมื่อฝั่งเซิร์ฟเวอร์ตอบ empty body)
+      var ok = res.ok && (!payload || payload.success === true);
+      if (!ok) {
+        var serverMsg = payload && payload.message ? payload.message : null;
+        throw new Error(serverMsg || "ลบรูปภาพไม่สำเร็จ");
       }
 
       var item = buttonEl ? buttonEl.closest(".existing-image-item") : null;
       if (item && item.parentNode) {
         item.parentNode.removeChild(item);
       }
-      alert("ลบรูปภาพสำเร็จ");
+      alert(payload && payload.message ? payload.message : "ลบรูปภาพสำเร็จ");
     } catch (err) {
       console.error("Delete error:", err);
       alert(

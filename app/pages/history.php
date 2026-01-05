@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('history_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -44,10 +44,19 @@ try {
 }
 
 // ----------------------------
-// เช็กสิทธิ์ล็อกอิน
+// เช็กสิทธิ์ล็อกอิน (รองรับ AJAX action)
 // ----------------------------
+$isAjax = (static function (): bool {
+  $xrw = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''));
+  $accept = (string)($_SERVER['HTTP_ACCEPT'] ?? '');
+  return $xrw === 'xmlhttprequest' || stripos($accept, 'application/json') !== false;
+})();
+
 $user = current_user();
 if ($user === null) {
+  if ($isAjax && isset($_GET['action'])) {
+    json_response(['success' => false, 'message' => 'กรุณาเข้าสู่ระบบ'], 401);
+  }
   flash('error', 'กรุณาเข้าสู่ระบบก่อน');
   redirect('?page=signin');
 }
@@ -55,6 +64,9 @@ if ($user === null) {
 $userId = (int) ($user['user_id'] ?? $user['id'] ?? 0);
 if ($userId <= 0) {
   app_log('history_invalid_user', ['session_user' => $user]);
+  if ($isAjax && isset($_GET['action'])) {
+    json_response(['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง'], 401);
+  }
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
   redirect('?page=signin');
 }
@@ -64,6 +76,9 @@ if ($userId <= 0) {
 // ----------------------------
 $userRole = (int)($user['role'] ?? 0);
 if ($userRole === ROLE_ADMIN) {
+  if ($isAjax && isset($_GET['action'])) {
+    json_response(['success' => false, 'message' => 'ผู้ดูแลระบบไม่มีประวัติการจอง'], 403);
+  }
   flash('error', 'ผู้ดูแลระบบไม่มีประวัติการจองของตัวเอง');
   redirect('?page=admin_dashboard');
 }
@@ -220,6 +235,7 @@ try {
     'SELECT 
         bd.booking_id, bd.area_id, bd.user_id, bd.booking_date, bd.deposit_amount, bd.deposit_status,
         bd.created_at, bd.updated_at,
+        c.contract_id, c.start_date AS contract_start, c.end_date AS contract_end,
         COALESCE(ra.area_name, "พื้นที่ถูกลบ") AS area_name,
         COALESCE(ra.price_per_year, 0) AS price_per_year,
         COALESCE(ra.deposit_percent, 10) AS deposit_percent,
@@ -228,6 +244,7 @@ try {
         COALESCE(p.province_name, "ไม่ระบุ") AS province_name
      FROM booking_deposit bd
      LEFT JOIN rental_area ra ON bd.area_id = ra.area_id
+      LEFT JOIN contract c ON c.booking_id = bd.booking_id
      LEFT JOIN district d ON ra.district_id = d.district_id
      LEFT JOIN province p ON d.province_id = p.province_id
      WHERE bd.user_id = ?
@@ -323,6 +340,7 @@ foreach ($bookings as $b) {
         $depositPercent = (float)($b['deposit_percent'] ?? 10);
         $bookingDate = $b['booking_date'] ?? null;
         $bookingDateLabel = $bookingDate ? date('d/m/Y', strtotime($bookingDate)) : '-';
+        $hasContract = !empty($b['contract_id']);
         ?>
         <div
           class="booking-card"
@@ -362,8 +380,8 @@ foreach ($bookings as $b) {
           <div class="booking-card-actions">
             <?php if ($status === 'pending'): ?>
               <button type="button" class="action-btn cancel" data-action="cancel" data-id="<?= (int)$b['booking_id']; ?>" title="ยกเลิก">❌ ยกเลิก</button>
-            <?php elseif ($status === 'approved'): ?>
-              <button type="button" class="action-btn view" data-action="view" data-id="<?= (int)$b['area_id']; ?>" title="ดูรายละเอียด">👁️ ดูรายละเอียด</button>
+            <?php elseif ($status === 'approved' && $hasContract): ?>
+              <button type="button" class="action-btn view" data-action="viewContract" data-id="<?= (int)$b['booking_id']; ?>" title="ดูรายละเอียดสัญญา">📄 ดูรายละเอียดสัญญา</button>
             <?php endif; ?>
           </div>
         </div>

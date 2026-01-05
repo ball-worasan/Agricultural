@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // NOTE: ห้ามใช้ app_log ก่อน include helpers.php
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   error_log('payment_database_file_missing: ' . $databaseFile);
   http_response_code(500);
@@ -85,7 +85,7 @@ if ($userId <= 0) {
 // Guard: แอดมินไม่สามารถจองหรือชำระเงินได้
 // ----------------------------
 $userRole = (int)($user['role'] ?? 0);
-if ($userRole === ROLE_ADMIN) {
+if (defined('ROLE_ADMIN') && $userRole === ROLE_ADMIN) {
   flash('error', 'ผู้ดูแลระบบไม่สามารถจองหรือชำระเงินได้');
   redirect('?page=admin_dashboard');
   return;
@@ -107,6 +107,47 @@ if (!class_exists('HttpFail')) {
 }
 
 // ----------------------------
+// Fee helpers
+// ----------------------------
+$getActiveFee = static function (): ?array {
+  try {
+    $fee = Database::fetchOne(
+      'SELECT fee_id, fee_rate, account_number, account_name, bank_name
+         FROM fee
+        ORDER BY fee_id DESC
+        LIMIT 1'
+    );
+    return $fee ?: null;
+  } catch (Throwable $e) {
+    app_log('fee_fetch_error', ['error' => $e->getMessage()]);
+    return null;
+  }
+};
+
+$getFeeRate = static function () use ($getActiveFee): float {
+  $fee = $getActiveFee();
+  $rate = (float)($fee['fee_rate'] ?? 0);
+  return max(0.0, $rate);
+};
+
+$isPromptPay = static function (?array $fee): bool {
+  if (!$fee) return true; // default เป็นพร้อมเพย์
+
+  $bankName = strtolower(trim((string)($fee['bank_name'] ?? '')));
+  $accountNumber = trim((string)($fee['account_number'] ?? ''));
+
+  if (in_array($bankName, ['promptpay', 'พร้อมเพย์', 'prompt pay', ''], true)) {
+    return true;
+  }
+
+  if (preg_match('/^0\d{9}$/', $accountNumber)) {
+    return true;
+  }
+
+  return false;
+};
+
+// ----------------------------
 // Upload helpers
 // ----------------------------
 $validateSlipUpload = static function (): array {
@@ -122,6 +163,7 @@ $validateSlipUpload = static function (): array {
     return ['success' => false, 'message' => 'ไฟล์อัปโหลดไม่ถูกต้อง'];
   }
 
+  // ✅ ให้ตรงกับ JS: 5MB
   if ($fileSize <= 0 || $fileSize > 5 * 1024 * 1024) {
     return ['success' => false, 'message' => 'ไฟล์มีขนาดเกิน 5MB'];
   }
@@ -130,6 +172,10 @@ $validateSlipUpload = static function (): array {
   $fileExtension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
   if (!in_array($fileExtension, $allowedExtensions, true)) {
     return ['success' => false, 'message' => 'รองรับเฉพาะไฟล์รูปภาพ (jpg, jpeg, png, gif, webp)'];
+  }
+
+  if (!class_exists('finfo')) {
+    return ['success' => false, 'message' => 'ระบบตรวจสอบไฟล์ไม่พร้อมใช้งาน (finfo)'];
   }
 
   $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -152,9 +198,9 @@ $validateSlipUpload = static function (): array {
 };
 
 $uploadSlip = static function (int $userId, int $areaId, string $tmpName, string $extension): ?string {
-  // APP_PATH = /home/worasan/projects/sirinat (project root)
-  // ดังนั้น APP_PATH . '/storage/uploads/slips' จะเป็น /home/worasan/projects/sirinat/storage/uploads/slips
-  $uploadDir = APP_PATH . '/storage/uploads/slips';
+  // เก็บไฟล์สลิปใต้ public ให้เสิร์ฟได้ตรง path /storage/uploads/slips
+  $projectRoot = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : dirname(APP_PATH);
+  $uploadDir = $projectRoot . '/public/storage/uploads/slips';
 
   if (!is_dir($uploadDir)) {
     if (!mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
@@ -184,9 +230,32 @@ $uploadSlip = static function (int $userId, int $areaId, string $tmpName, string
 };
 
 // ----------------------
-// POST: ยืนยันการชำระมัดจำ (AJAX)
+// POST: ยืนยันการชำระ (AJAX)
 // ----------------------
 if ($method === 'POST' && isset($_POST['update_payment'])) {
+  $flow = (string)($_POST['flow'] ?? 'deposit');
+
+  // ===== flow: full (กันพัง + ตอบชัดเจน) =====
+  if ($flow === 'full') {
+    $contractId = (int)($_POST['contract_id'] ?? 0);
+    if ($contractId <= 0) {
+      json_response(['success' => false, 'message' => 'ข้อมูลสัญญาไม่ถูกต้อง'], 400);
+    }
+
+    // validate slip upload (กันส่งมั่ว)
+    $validation = $validateSlipUpload();
+    if (!$validation['success']) {
+      json_response(['success' => false, 'message' => (string)$validation['message']], 400);
+    }
+
+    // ตอนนี้ยังไม่เห็น schema เก็บ slip ของสัญญา -> เลยตอบกลับชัด ๆ
+    json_response([
+      'success' => false,
+      'message' => 'โหมดชำระเงินสัญญายังไม่ได้ผูกกับฐานข้อมูล (ต้องเพิ่มตาราง/คอลัมน์รองรับการเก็บสลิปและสถานะ)',
+    ], 400);
+  }
+
+  // ===== flow: deposit (ของเดิม) =====
   $areaId      = isset($_POST['area_id']) ? (int)$_POST['area_id'] : 0;
   $bookingDate = trim((string)($_POST['booking_date'] ?? ''));
 
@@ -266,7 +335,6 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
       }
 
       // สร้าง booking_deposit ใหม่พร้อม payment_slip
-      // NOTE: สร้างหลังจาก user โอนเงิน + upload slip + กดยืนยันเท่านั้น
       Database::execute(
         '
           INSERT INTO booking_deposit (area_id, user_id, booking_date, deposit_amount, deposit_status, payment_slip)
@@ -312,9 +380,8 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
       'trace'        => $e->getTraceAsString(),
     ]);
 
-    // ใน development ให้แสดง error detail
     $message = 'เกิดข้อผิดพลาดในการอัปเดตการชำระเงิน';
-    if (app_debug_enabled()) {
+    if (function_exists('app_debug_enabled') && app_debug_enabled()) {
       $message .= ': ' . $e->getMessage();
     }
 
@@ -323,156 +390,259 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
 }
 
 // ----------------------
-// GET: แสดงหน้า payment
+// GET: เตรียมข้อมูลหน้า (render ทีเดียว ไม่ซ้อน 2 รอบ)
 // ----------------------
 $areaId = (int)(filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?? 0);
 $day    = (int)(filter_input(INPUT_GET, 'day', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?? 0);
 $month  = (int)(filter_input(INPUT_GET, 'month', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 11]]) ?? 0);
 $year   = (int)(filter_input(INPUT_GET, 'year', FILTER_VALIDATE_INT, ['options' => ['min_range' => 2020]]) ?? 0);
 
-if ($areaId <= 0 || $day <= 0 || $year <= 0) {
-  redirect('?page=home');
-}
+$contractId = (int)(filter_input(INPUT_GET, 'contract_id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?? 0);
+$flow = $contractId > 0 ? 'full' : 'deposit';
 
-if ($month < 0 || $month > 11) {
-  redirect('?page=detail&id=' . (int)$areaId . '&error=month');
-}
+// shared: fee account
+$feeData = $getActiveFee();
+$isPromptPayAccount = $isPromptPay($feeData);
 
-// validate วันที่เป็นวันจริง + ต้องเป็นอนาคต (>= พรุ่งนี้)
-try {
-  $selectedDate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month + 1, $day));
-  $today = new DateTimeImmutable('today');
-  $minDate = $today->modify('+1 day');
+$accountNumber = $feeData ? trim((string)($feeData['account_number'] ?? '0641365430')) : '0641365430';
+$accountName   = $feeData ? trim((string)($feeData['account_name'] ?? 'ระบบจองพื้นที่เกษตร')) : 'ระบบจองพื้นที่เกษตร';
+$bankName      = ($feeData && !$isPromptPayAccount) ? trim((string)($feeData['bank_name'] ?? '')) : '';
 
-  if ($selectedDate < $minDate) {
+$expiresAtIso = (new DateTimeImmutable('now'))->modify('+60 minutes')->format(DATE_ATOM);
+
+// vars for view
+$pageTitle = '';
+$displayAreaName = '';
+$dateLabel = '';
+$dateText = '';
+$amountForDisplay = 0.0;     // show
+$amountForQrInt = 0;         // promptpay.io ชอบเป็น int
+$bookingDate = null;
+$item = null;
+$contractRow = null;
+
+if ($flow === 'full') {
+  if ($contractId <= 0) redirect('?page=history');
+
+  $contractRow = Database::fetchOne(
+    'SELECT c.contract_id, c.total_price, c.price_per_year, c.start_date, c.end_date,
+            bd.deposit_amount, bd.deposit_status, bd.booking_date, bd.user_id AS tenant_id,
+            ra.area_name
+       FROM contract c
+       JOIN booking_deposit bd ON c.booking_id = bd.booking_id
+       JOIN rental_area ra      ON bd.area_id = ra.area_id
+      WHERE c.contract_id = ?
+      LIMIT 1',
+    [$contractId]
+  );
+
+  if (!$contractRow) redirect('?page=history');
+  if ((int)$contractRow['tenant_id'] !== $userId) redirect('?page=history');
+  if ((string)$contractRow['deposit_status'] !== 'approved') redirect('?page=history');
+
+  $baseTotal = (float)($contractRow['total_price'] ?? $contractRow['price_per_year'] ?? 0);
+  $feeRate   = $getFeeRate();
+  $feeAmount = round($baseTotal * $feeRate / 100, 2);
+  $depositAmt = (float)($contractRow['deposit_amount'] ?? 0);
+  $amountDue = max(0.0, $baseTotal + $feeAmount - $depositAmt);
+
+  $pageTitle = 'ชำระเงินสัญญา';
+  $displayAreaName = (string)($contractRow['area_name'] ?? '');
+  $dateLabel = 'สัญญา';
+  $dateText = sprintf('%s ถึง %s', (string)($contractRow['start_date'] ?? ''), (string)($contractRow['end_date'] ?? ''));
+  $amountForDisplay = $amountDue;
+  $amountForQrInt = (int)ceil($amountDue);
+  $bookingDate = (string)($contractRow['booking_date'] ?? null);
+} else {
+  // deposit flow
+  if ($areaId <= 0 || $day <= 0 || $year <= 0) redirect('?page=home');
+  if ($month < 0 || $month > 11) redirect('?page=detail&id=' . (int)$areaId . '&error=month');
+
+  // validate วันที่เป็นวันจริง + ต้องเป็นอนาคต (>= พรุ่งนี้)
+  try {
+    $selectedDate = new DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month + 1, $day));
+    $today = new DateTimeImmutable('today');
+    $minDate = $today->modify('+1 day');
+
+    if ($selectedDate < $minDate) {
+      redirect('?page=detail&id=' . (int)$areaId . '&error=date');
+    }
+  } catch (Throwable $e) {
     redirect('?page=detail&id=' . (int)$areaId . '&error=date');
   }
-} catch (Throwable $e) {
-  redirect('?page=detail&id=' . (int)$areaId . '&error=date');
+
+  // label วันไทย
+  $monthNames = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+  $buddhistYear = $year + 543;
+  $fullDate     = sprintf('%d %s %d', $day, $monthNames[$month], $buddhistYear);
+  $bookingDate  = sprintf('%04d-%02d-%02d', $year, $month + 1, $day);
+
+  $item = Database::fetchOne(
+    'SELECT area_id, user_id, area_name, price_per_year, area_status FROM rental_area WHERE area_id = ?',
+    [$areaId]
+  );
+
+  if (!$item) {
+    echo '<div class="container"><h1>ไม่พบข้อมูลพื้นที่</h1><a href="?page=home">กลับหน้าหลัก</a></div>';
+    exit();
+  }
+
+  // ห้ามเจ้าของจองพื้นที่ตัวเอง
+  if ((int)($item['user_id'] ?? 0) === $userId) {
+    redirect('?page=detail&id=' . (int)$areaId . '&error=owner');
+  }
+
+  // ต้องยังว่างเท่านั้น
+  if ((string)($item['area_status'] ?? '') !== 'available') {
+    echo '<div class="container"><h1>ไม่สามารถจองพื้นที่นี้ได้</h1><p>สถานะปัจจุบัน: ' . e((string)($item['area_status'] ?? '')) . '</p><a href="?page=detail&id=' . (int)$areaId . '">กลับไปหน้ารายละเอียด</a></div>';
+    exit();
+  }
+
+  $annualPriceRaw = (float)($item['price_per_year'] ?? 0);
+  $depositRaw = max(0, (int)ceil($annualPriceRaw * 10 / 100));
+
+  $pageTitle = 'ชำระเงินมัดจำ';
+  $displayAreaName = (string)($item['area_name'] ?? '');
+  $dateLabel = 'วันที่นัด';
+  $dateText = $fullDate;
+  $amountForDisplay = (float)$depositRaw;
+  $amountForQrInt = (int)$depositRaw;
 }
-
-// label วันไทย
-$monthNames = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-$buddhistYear = $year + 543;
-$fullDate     = sprintf('%d %s %d', $day, $monthNames[$month], $buddhistYear);
-$bookingDate  = sprintf('%04d-%02d-%02d', $year, $month + 1, $day);
-
-// ดึงข้อมูลพื้นที่
-$item = Database::fetchOne(
-  'SELECT area_id, user_id, area_name, price_per_year, area_status FROM rental_area WHERE area_id = ?',
-  [$areaId]
-);
-
-if (!$item) {
-?>
-  <div class="container">
-    <h1>ไม่พบข้อมูลพื้นที่</h1>
-    <a href="?page=home">กลับหน้าหลัก</a>
-  </div>
-<?php
-  exit();
-}
-
-// ห้ามเจ้าของจองพื้นที่ตัวเอง
-if ((int)($item['user_id'] ?? 0) === $userId) {
-  redirect('?page=detail&id=' . (int)$areaId . '&error=owner');
-}
-
-// ตรวจสอบสถานะพื้นที่ (ต้องยังว่างเท่านั้น)
-if ((string)($item['area_status'] ?? '') !== 'available') {
-?>
-  <div class="container">
-    <h1>ไม่สามารถจองพื้นที่นี้ได้</h1>
-    <p>สถานะปัจจุบัน: <?php echo e((string)($item['area_status'] ?? '')); ?></p>
-    <a href="?page=detail&id=<?php echo (int)$areaId; ?>">กลับไปหน้ารายละเอียด</a>
-  </div>
-<?php
-  exit();
-}
-
-// คำนวณมัดจำ
-$annualPriceRaw = (float)($item['price_per_year'] ?? 0);
-$depositPercent = 10;
-$depositRaw     = max(0, (int)ceil($annualPriceRaw * $depositPercent / 100));
-$deposit        = number_format($depositRaw);
-
-// ตั้งเวลาหมดอายุ 60 นาทีจากตอนนี้ (สำหรับ countdown timer)
-$now = new DateTimeImmutable('now');
-$expiresAtIso = $now->modify('+60 minutes')->format(DATE_ATOM);
 
 ?>
 <div class="payment-container">
-  <a href="?page=detail&id=<?php echo (int)$areaId; ?>" class="back-button minimal">ย้อนกลับ</a>
+  <div class="payment-wrapper">
+    <a href="<?php echo $flow === 'deposit'
+                ? ('?page=detail&id=' . (int)$areaId)
+                : ('?page=history'); ?>"
+      class="back-link">← ย้อนกลับ</a>
 
-  <header class="payment-header compact" role="banner">
-    <h1 class="payment-title">ชำระมัดจำเช่าพื้นที่เกษตร</h1>
-    <p class="payment-subtitle">กรุณาชำระภายใน 60 นาที และอัปโหลดสลิป</p>
-  </header>
+    <header class="payment-hero">
+      <h1><?php echo e($pageTitle); ?></h1>
 
-  <div class="payment-grid">
-    <section class="payment-section" aria-labelledby="bookingHeading">
-      <h2 id="bookingHeading" class="section-heading">ข้อมูลการจอง</h2>
+      <div class="booking-summary">
+        <div class="summary-item">
+          <span class="label">พื้นที่:</span>
+          <strong><?php echo e($displayAreaName); ?></strong>
+        </div>
 
-      <ul class="booking-list" role="list">
-        <li>
-          <span class="bl-label">รหัส:</span>
-          <span class="bl-value ref-code">#<?php echo str_pad((string)$areaId, 6, '0', STR_PAD_LEFT); ?></span>
-        </li>
-        <li><span class="bl-label">พื้นที่:</span><span class="bl-value"><?php echo e((string)($item['area_name'] ?? '')); ?></span></li>
-        <li><span class="bl-label">วันที่นัด:</span><span class="bl-value"><?php echo e($fullDate); ?></span></li>
-        <li class="deposit-row">
-          <span class="bl-label">มัดจำ:</span>
-          <span class="bl-value price">฿<?php echo e($deposit); ?></span>
-        </li>
-      </ul>
+        <div class="summary-item">
+          <span class="label"><?php echo e($dateLabel); ?>:</span>
+          <strong><?php echo e($dateText); ?></strong>
+        </div>
 
-      <div class="inline-note">* มัดจำเท่ากับค่าเช่าเดือนแรก</div>
-    </section>
-
-    <section class="payment-section" aria-labelledby="payHeading">
-      <h2 id="payHeading" class="section-heading">ช่องทางชำระเงิน</h2>
-
-      <div class="qr-box">
-        <img
-          src="https://promptpay.io/0641365430/<?php echo (int)$depositRaw; ?>.png"
-          alt="QR PromptPay"
-          class="qr-img"
-          loading="lazy">
+        <div class="summary-item highlight">
+          <span class="label">ยอดชำระ:</span>
+          <strong class="amount">฿<?php echo e(number_format($amountForDisplay, 0)); ?></strong>
+        </div>
       </div>
 
-      <div class="pay-meta">
-        <div><span class="meta-label">PromptPay:</span> <span class="meta-value">064-136-5430</span></div>
-        <div><span class="meta-label">จำนวนเงิน:</span> <span class="meta-value price">฿<?php echo e($deposit); ?></span></div>
-        <div><span class="meta-label">เวลาคงเหลือ:</span> <span class="meta-value" id="timeRemaining">--:--</span></div>
+      <div class="timer-box">
+        <span class="timer-icon">⏱</span>
+        <span>เวลาคงเหลือ: <strong id="timeRemaining">--:--</strong></span>
+      </div>
+    </header>
+
+    <div class="payment-steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3><?php echo $isPromptPayAccount ? 'สแกน QR Code' : 'โอนเงินเข้าบัญชี'; ?></h3>
+
+          <div class="qr-wrapper">
+            <?php if ($isPromptPayAccount): ?>
+              <img
+                src="https://promptpay.io/<?php echo e($accountNumber); ?>/<?php echo (int)$amountForQrInt; ?>.png"
+                alt="QR PromptPay"
+                class="qr-code"
+                loading="lazy">
+              <div class="qr-info">
+                <div>ชื่อบัญชี: <strong><?php echo e($accountName); ?></strong></div>
+                <div>พร้อมเพย์: <strong><?php echo e(substr($accountNumber, 0, 3) . '-' . substr($accountNumber, 3, 3) . '-' . substr($accountNumber, 6)); ?></strong></div>
+                <div>จำนวน: <strong class="amount">฿<?php echo e(number_format($amountForDisplay, 0)); ?></strong></div>
+              </div>
+            <?php else: ?>
+              <div class="qr-info" style="text-align: left; width: 100%;">
+                <div style="margin-bottom: 0.75rem;">ชื่อบัญชี: <strong><?php echo e($accountName); ?></strong></div>
+                <div style="margin-bottom: 0.75rem;">ธนาคาร: <strong><?php echo e($bankName); ?></strong></div>
+                <div style="margin-bottom: 0.75rem;">เลขบัญชี: <strong><?php echo e($accountNumber); ?></strong></div>
+                <div>จำนวน: <strong class="amount">฿<?php echo e(number_format($amountForDisplay, 0)); ?></strong></div>
+              </div>
+            <?php endif; ?>
+          </div>
+        </div>
       </div>
 
-      <div class="upload-slip clean">
-        <label for="slipFile" class="upload-label">📎 อัปโหลดสลิปการโอน</label>
-        <input type="file" id="slipFile" name="slip_file" accept="image/*" class="upload-input">
-        <div id="slipPreview" class="slip-preview" hidden></div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>อัปโหลดสลิปการโอน</h3>
+
+          <div class="upload-zone">
+            <label for="slipFile" class="upload-btn">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <span>เลือกไฟล์สลิป</span>
+            </label>
+
+            <input type="file" id="slipFile" name="slip_file" accept="image/*" class="upload-input">
+            <div id="slipPreview" class="slip-preview" hidden></div>
+          </div>
+        </div>
       </div>
 
-      <div class="quick-hints">
-        <small>
-          💡 กรุณาชำระเงินภายใน
-          <strong id="timeRemainingText">60 นาที</strong>
-          และอัปโหลดสลิปเพื่อยืนยันการจอง
-        </small>
-      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3>ยืนยันการชำระเงิน</h3>
 
-      <div class="action-row">
-        <button type="button" class="btn-confirm-payment" disabled>ยืนยันการชำระเงิน</button>
-        <button type="button" class="btn-cancel-payment">❌ ยกเลิกการจอง</button>
+          <div class="action-buttons">
+            <button
+              type="button"
+              class="btn-confirm"
+              data-flow="<?php echo e($flow); ?>"
+              <?php if ($flow === 'full'): ?>
+              data-contract-id="<?php echo (int)$contractId; ?>"
+              <?php endif; ?>
+              <?php if ($flow === 'deposit'): ?>
+              data-area-id="<?php echo (int)$areaId; ?>"
+              data-booking-date="<?php echo e((string)$bookingDate); ?>"
+              <?php endif; ?>
+              disabled>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span><?php echo $flow === 'full' ? 'ยืนยันการชำระเงินสัญญา' : 'ยืนยันการชำระเงิน'; ?></span>
+            </button>
+
+            <button type="button" class="btn-cancel">
+              <span>ยกเลิก</span>
+            </button>
+          </div>
+        </div>
       </div>
-    </section>
+    </div>
+
+    <div class="payment-note">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      <span>กรุณาชำระเงินและอัปโหลดสลิปภายในเวลาที่กำหนด เพื่อยืนยันการทำรายการ</span>
+    </div>
   </div>
 </div>
 
 <script nonce="<?php echo e(csp_nonce()); ?>">
-  // JS จะอ่านจากตรงนี้
   window.PAYMENT_DATA = <?php echo json_encode([
-                          'areaId'      => $areaId,
-                          'bookingDate' => $bookingDate,
+                          'flow'        => $flow,
+                          'areaId'      => $flow === 'deposit' ? $areaId : 0,
+                          'bookingDate' => $flow === 'deposit' ? $bookingDate : null,
+                          'contractId'  => $flow === 'full' ? $contractId : null,
                           'expiresAt'   => $expiresAtIso ?? '',
                         ], JSON_UNESCAPED_UNICODE); ?>;
 </script>

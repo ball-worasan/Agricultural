@@ -50,6 +50,7 @@ $__clearBuffers = static function (): void {
   }
 };
 
+// แสดงหน้าข้อผิดพลาด
 $__renderFail = static function (string $title, string $message, string $refId, bool $json) use ($__safeHeader, $__clearBuffers): void {
   if (!headers_sent()) {
     http_response_code(500);
@@ -134,7 +135,7 @@ set_exception_handler(static function (Throwable $e) use ($__fallbackLogWrite, $
   exit;
 });
 
-// fatal shutdown
+// shutdown function สำหรับ fatal error
 register_shutdown_function(static function () use ($__fallbackLogWrite, $__renderFail, $__wantJson, $__clearBuffers): void {
   $err = error_get_last();
   if (!$err) return;

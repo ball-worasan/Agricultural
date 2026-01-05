@@ -101,8 +101,8 @@
           btn.disabled = false;
           btn.classList.remove("disabled");
         }
-      } else if (action === "view") {
-        window.location = `?page=detail&id=${encodeURIComponent(id)}`;
+      } else if (action === "viewContract") {
+        window.location = `?page=contract&booking_id=${encodeURIComponent(id)}`;
       }
     });
   });

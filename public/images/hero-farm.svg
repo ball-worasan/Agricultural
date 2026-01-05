@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <!-- Sky gradient -->
+  <defs>
+    <linearGradient id="skyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#87CEEB;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E0F6FF;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="landGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#90EE90;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#228B22;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Sky -->
+  <rect width="800" height="400" fill="url(#skyGradient)"/>
+  
+  <!-- Land -->
+  <rect y="400" width="800" height="200" fill="url(#landGradient)"/>
+  
+  <!-- Sun -->
+  <circle cx="700" cy="80" r="40" fill="#FFD700" opacity="0.9"/>
+  
+  <!-- Clouds -->
+  <g fill="white" opacity="0.8">
+    <ellipse cx="150" cy="100" rx="40" ry="25"/>
+    <ellipse cx="190" cy="110" rx="50" ry="30"/>
+    <ellipse cx="110" cy="120" rx="35" ry="20"/>
+  </g>
+  
+  <g fill="white" opacity="0.6">
+    <ellipse cx="600" cy="140" rx="45" ry="28"/>
+    <ellipse cx="650" cy="150" rx="55" ry="32"/>
+    <ellipse cx="550" cy="165" rx="40" ry="22"/>
+  </g>
+  
+  <!-- Farm field rows -->
+  <g stroke="#7CB342" stroke-width="2" fill="none" opacity="0.6">
+    <line x1="0" y1="450" x2="800" y2="450"/>
+    <line x1="0" y1="470" x2="800" y2="470"/>
+    <line x1="0" y1="490" x2="800" y2="490"/>
+    <line x1="0" y1="510" x2="800" y2="510"/>
+    <line x1="0" y1="530" x2="800" y2="530"/>
+    <line x1="0" y1="550" x2="800" y2="550"/>
+  </g>
+  
+  <!-- Farm building/barn -->
+  <rect x="50" y="320" width="120" height="100" fill="#8B4513"/>
+  <polygon points="50,320 110,260 170,320" fill="#A0522D"/>
+  
+  <!-- Window -->
+  <rect x="70" y="340" width="20" height="20" fill="#87CEEB"/>
+  <rect x="120" y="340" width="20" height="20" fill="#87CEEB"/>
+  
+  <!-- Door -->
+  <rect x="100" y="370" width="20" height="50" fill="#654321"/>
+  
+  <!-- Fence -->
+  <g stroke="#8B4513" stroke-width="3">
+    <line x1="200" y1="420" x2="800" y2="420"/>
+  </g>
+  <g fill="#8B4513" opacity="0.7">
+    <rect x="220" y="410" width="3" height="15"/>
+    <rect x="260" y="410" width="3" height="15"/>
+    <rect x="300" y="410" width="3" height="15"/>
+    <rect x="340" y="410" width="3" height="15"/>
+    <rect x="380" y="410" width="3" height="15"/>
+    <rect x="420" y="410" width="3" height="15"/>
+    <rect x="460" y="410" width="3" height="15"/>
+    <rect x="500" y="410" width="3" height="15"/>
+    <rect x="540" y="410" width="3" height="15"/>
+    <rect x="580" y="410" width="3" height="15"/>
+    <rect x="620" y="410" width="3" height="15"/>
+    <rect x="660" y="410" width="3" height="15"/>
+    <rect x="700" y="410" width="3" height="15"/>
+    <rect x="740" y="410" width="3" height="15"/>
+  </g>
+  
+  <!-- Trees -->
+  <g>
+    <!-- Tree 1 -->
+    <rect x="585" y="340" width="15" height="50" fill="#654321"/>
+    <circle cx="592" cy="320" r="35" fill="#228B22"/>
+    
+    <!-- Tree 2 -->
+    <rect x="680" y="350" width="15" height="40" fill="#654321"/>
+    <circle cx="687" cy="335" r="30" fill="#228B22"/>
+    
+    <!-- Tree 3 -->
+    <rect x="750" y="355" width="12" height="35" fill="#654321"/>
+    <circle cx="756" cy="340" r="25" fill="#228B22"/>
+  </g>
+  
+  <!-- Text overlay -->
+  <text x="400" y="550" font-size="24" font-weight="bold" text-anchor="middle" fill="white" opacity="0.9">
+    พื้นที่เกษตรของสิริณัฐ
+  </text>
+</svg>

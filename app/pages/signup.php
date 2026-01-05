@@ -9,7 +9,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', dirname(__DIR__, 2));
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('signup_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -332,88 +332,101 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 ?>
 <div class="signup-container">
   <div class="signup-wrapper">
-    <div class="signup-content">
-      <div class="signup-header">
-        <h1>สมัครสมาชิก</h1>
-        <p>เริ่มต้นปล่อยเช่าหรือหาแปลงเกษตรที่เหมาะกับคุณ</p>
+    <div class="signup-hero">
+      <div class="hero-content">
+        <h2>สมัครสมาชิก</h2>
+        <p>เป็นส่วนหนึ่งของชุมชนอาคารเกษตรแล้ววันนี้</p>
+        <div class="hero-features">
+          <div class="feature-item">✓ ปล่อยเช่าพื้นที่ของคุณ</div>
+          <div class="feature-item">✓ ค้นหาแปลงเกษตรที่เหมาะสม</div>
+          <div class="feature-item">✓ จัดการการจองได้อย่างง่ายดาย</div>
+        </div>
       </div>
-
-      <form action="?page=signup" method="POST" class="signup-form" novalidate>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="firstname">ชื่อ</label>
-            <input type="text" id="firstname" name="firstname" placeholder="กรอกชื่อ" required
-              value="<?= e(old('firstname')); ?>" autocomplete="given-name">
-          </div>
-          <div class="form-group">
-            <label for="lastname">นามสกุล</label>
-            <input type="text" id="lastname" name="lastname" placeholder="กรอกนามสกุล" required
-              value="<?= e(old('lastname')); ?>" autocomplete="family-name">
-          </div>
+    </div>
+    <div class="signup-form-wrapper">
+      <div class="signup-content">
+        <div class="signup-header">
+          <h1>สมัครสมาชิก</h1>
+          <p>เริ่มต้นปล่อยเช่าหรือหาแปลงเกษตรที่เหมาะกับคุณ</p>
         </div>
 
-        <div class="form-group">
-          <label for="address">ที่อยู่</label>
-          <input type="text" id="address" name="address" placeholder="กรอกที่อยู่" required
-            value="<?= e(old('address')); ?>" autocomplete="street-address">
-        </div>
-
-        <div class="form-group">
-          <label for="phone">เบอร์โทรศัพท์</label>
-          <input type="tel" id="phone" name="phone" placeholder="กรอกเบอร์โทรศัพท์" required
-            value="<?= e(old('phone')); ?>" autocomplete="tel"
-            pattern="[0-9]{9,10}" title="กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก">
-        </div>
-
-        <div class="form-group">
-          <label for="username">ชื่อผู้ใช้</label>
-          <input type="text" id="username" name="username" placeholder="กรอกชื่อผู้ใช้" required
-            value="<?= e(old('username')); ?>" autocomplete="username"
-            pattern="[a-zA-Z0-9_]{3,20}" minlength="3" maxlength="20"
-            title="ชื่อผู้ใช้ต้องมีความยาว 3-20 ตัวอักษร (a-z, A-Z, 0-9, _ เท่านั้น)">
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="password">รหัสผ่าน</label>
-            <div class="password-input-wrapper">
-              <input type="password" id="password" name="password" placeholder="กรอกรหัสผ่าน" required minlength="6" autocomplete="new-password">
-              <button type="button" class="toggle-password" data-target="password" aria-label="แสดง/ซ่อนรหัสผ่าน">
-                <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-                <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                  <line x1="1" y1="1" x2="23" y2="23"></line>
-                </svg>
-              </button>
+        <form action="?page=signup" method="POST" class="signup-form" novalidate>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="firstname">ชื่อ</label>
+              <input type="text" id="firstname" name="firstname" placeholder="กรอกชื่อ" required
+                value="<?= e(old('firstname')); ?>" autocomplete="given-name">
+            </div>
+            <div class="form-group">
+              <label for="lastname">นามสกุล</label>
+              <input type="text" id="lastname" name="lastname" placeholder="กรอกนามสกุล" required
+                value="<?= e(old('lastname')); ?>" autocomplete="family-name">
             </div>
           </div>
 
           <div class="form-group">
-            <label for="password_confirm">ยืนยันรหัสผ่าน</label>
-            <div class="password-input-wrapper">
-              <input type="password" id="password_confirm" name="password_confirm" placeholder="ยืนยันรหัสผ่าน" required minlength="6" autocomplete="new-password">
-              <button type="button" class="toggle-password" data-target="password_confirm" aria-label="แสดง/ซ่อนรหัสผ่าน">
-                <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-                <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                  <line x1="1" y1="1" x2="23" y2="23"></line>
-                </svg>
-              </button>
+            <label for="address">ที่อยู่</label>
+            <input type="text" id="address" name="address" placeholder="กรอกที่อยู่" required
+              value="<?= e(old('address')); ?>" autocomplete="street-address">
+          </div>
+
+          <div class="form-group">
+            <label for="phone">เบอร์โทรศัพท์</label>
+            <input type="tel" id="phone" name="phone" placeholder="กรอกเบอร์โทรศัพท์" required
+              value="<?= e(old('phone')); ?>" autocomplete="tel"
+              pattern="[0-9]{9,10}" title="กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก">
+          </div>
+
+          <div class="form-group">
+            <label for="username">ชื่อผู้ใช้</label>
+            <input type="text" id="username" name="username" placeholder="กรอกชื่อผู้ใช้" required
+              value="<?= e(old('username')); ?>" autocomplete="username"
+              pattern="[a-zA-Z0-9_]{3,20}" minlength="3" maxlength="20"
+              title="ชื่อผู้ใช้ต้องมีความยาว 3-20 ตัวอักษร (a-z, A-Z, 0-9, _ เท่านั้น)">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="password">รหัสผ่าน</label>
+              <div class="password-input-wrapper">
+                <input type="password" id="password" name="password" placeholder="กรอกรหัสผ่าน" required minlength="6" autocomplete="new-password">
+                <button type="button" class="toggle-password" data-target="password" aria-label="แสดง/ซ่อนรหัสผ่าน">
+                  <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="password_confirm">ยืนยันรหัสผ่าน</label>
+              <div class="password-input-wrapper">
+                <input type="password" id="password_confirm" name="password_confirm" placeholder="ยืนยันรหัสผ่าน" required minlength="6" autocomplete="new-password">
+                <button type="button" class="toggle-password" data-target="password_confirm" aria-label="แสดง/ซ่อนรหัสผ่าน">
+                  <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
+
+          <button type="submit" class="btn-signup">สมัครสมาชิก</button>
+        </form>
+
+        <div class="signup-footer">
+          <p>มีบัญชีอยู่แล้ว? <a href="?page=signin">เข้าสู่ระบบ</a></p>
         </div>
-
-        <button type="submit" class="btn-signup">สมัครสมาชิก</button>
-      </form>
-
-      <div class="signup-footer">
-        <p>มีบัญชีอยู่แล้ว? <a href="?page=signin">เข้าสู่ระบบ</a></p>
       </div>
     </div>
   </div>

@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('add_property_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -146,7 +146,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   $area_ngan    = filter_input(INPUT_POST, 'area_ngan', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 99]]) ?? 0;
   $area_sqwa    = filter_input(INPUT_POST, 'area_sqwa', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 99]]) ?? 0;
   $priceRaw     = trim((string)($_POST['price'] ?? ''));
-  $depositPercent = 10.0;
+  $depositPercentRaw = trim((string)($_POST['deposit_percent'] ?? '10'));
+
+  // validate deposit percent
+  if ($depositPercentRaw === '' || !is_numeric($depositPercentRaw)) {
+    $errors[] = 'กรุณากรอกเปอร์เซ็นต์มัดจำเป็นตัวเลข';
+    $depositPercent = 0.0;
+  } else {
+    $depositPercent = (float)$depositPercentRaw;
+    if ($depositPercent < 0 || $depositPercent > 100) {
+      $errors[] = 'เปอร์เซ็นต์มัดจำต้องอยู่ระหว่าง 0 - 100%';
+    }
+  }
 
   // Validate
   if ($title === '' || mb_strlen($title) > 255) $errors[] = 'กรุณากรอกชื่อพื้นที่ (ไม่เกิน 255 ตัวอักษร)';
@@ -396,8 +407,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="deposit_percent">เปอร์เซ็นต์มัดจำ (%) <span class="required">*</span></label>
-          <input id="deposit_percent" name="deposit_percent" type="number" value="10" readonly disabled>
-          <small class="text-note">กำหนดคงที่ 10% ไม่สามารถแก้ไขได้</small>
+          <input id="deposit_percent" name="deposit_percent" type="number" min="0" max="100" step="0.01" required value="<?= e($_POST['deposit_percent'] ?? '10'); ?>">
+          <small class="text-note">ระบุได้ 0 - 100% (ค่าเริ่มต้น 10%)</small>
         </div>
       </div>
     </div>

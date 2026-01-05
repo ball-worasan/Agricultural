@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('edit_property_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -62,6 +62,9 @@ if ($user === null) {
 }
 
 $userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
+// ระบุสิทธิ์ผู้ใช้
+$userRole = (int)($user['role'] ?? 0);
+$isAdmin  = ($userRole === ROLE_ADMIN);
 if ($userId <= 0) {
   app_log('edit_property_invalid_user', ['session_user' => $user]);
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
@@ -74,7 +77,7 @@ if ($userId <= 0) {
 $areaId = (int)($_GET['id'] ?? 0);
 if ($areaId <= 0) {
   flash('error', 'ไม่พบรายการพื้นที่ที่ต้องการแก้ไข');
-  redirect('?page=my_properties');
+  redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
 }
 
 // ----------------------------
@@ -95,15 +98,27 @@ try {
 $area = null;
 $provinceId = 0;
 try {
-  $area = Database::fetchOne(
-    'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.district_id, ra.area_status,
-              ra.created_at, ra.updated_at, d.province_id
-        FROM rental_area ra
-        JOIN district d ON ra.district_id = d.district_id
-        WHERE ra.area_id = ? AND ra.user_id = ?
-        LIMIT 1',
-    [$areaId, $userId]
-  );
+  if ($isAdmin) {
+    $area = Database::fetchOne(
+      'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.district_id, ra.area_status,
+                ra.created_at, ra.updated_at, d.province_id
+          FROM rental_area ra
+          JOIN district d ON ra.district_id = d.district_id
+          WHERE ra.area_id = ?
+          LIMIT 1',
+      [$areaId]
+    );
+  } else {
+    $area = Database::fetchOne(
+      'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.district_id, ra.area_status,
+                ra.created_at, ra.updated_at, d.province_id
+          FROM rental_area ra
+          JOIN district d ON ra.district_id = d.district_id
+          WHERE ra.area_id = ? AND ra.user_id = ?
+          LIMIT 1',
+      [$areaId, $userId]
+    );
+  }
   $provinceId = (int)($area['province_id'] ?? 0);
 } catch (Throwable $e) {
   app_log('edit_property_fetch_error', [
@@ -116,6 +131,12 @@ try {
 
 if (!$area) {
   flash('error', 'ไม่พบรายการพื้นที่ของคุณ');
+  redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
+}
+
+// ป้องกันการแก้ไขถ้าพื้นที่ติดจองหรือปิดให้เช่าแล้ว (ยกเว้นแอดมิน)
+if (!$isAdmin && in_array((string)($area['area_status'] ?? ''), ['booked', 'unavailable'], true)) {
+  flash('error', 'ไม่สามารถแก้ไขพื้นที่ที่ติดจองหรือปิดให้เช่าแล้วได้');
   redirect('?page=my_properties');
 }
 
@@ -163,11 +184,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   $priceRaw     = trim((string)($_POST['price'] ?? (string)($area['price_per_year'] ?? '')));
   $status       = trim((string)($_POST['status'] ?? $area['area_status'] ?? 'available'));
 
+  $depositPercentRaw = trim((string)($_POST['deposit_percent'] ?? (string)($area['deposit_percent'] ?? '10')));
+
   if (!in_array($status, $allowedStatuses, true)) {
     $status = 'available';
   }
 
-  $depositPercent = 10.0; // fixed per business rule
+  // validate deposit percent 0-100
+  if ($depositPercentRaw === '' || !is_numeric($depositPercentRaw)) {
+    $errors[] = 'กรุณากรอกเปอร์เซ็นต์มัดจำเป็นตัวเลข';
+    $depositPercent = 0.0;
+  } else {
+    $depositPercent = (float)$depositPercentRaw;
+    if ($depositPercent < 0 || $depositPercent > 100) {
+      $errors[] = 'เปอร์เซ็นต์มัดจำต้องอยู่ระหว่าง 0 - 100%';
+    }
+  }
 
   if ($title === '') $errors[] = 'กรุณากรอกชื่อพื้นที่';
   if ($provinceId <= 0) $errors[] = 'กรุณาเลือกจังหวัด';
@@ -285,23 +317,42 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $areaSize,
         $districtId,
         $status,
-        $uploadedImages
+        $uploadedImages,
+        $isAdmin
       ) {
-        Database::execute(
-          'UPDATE rental_area
-              SET area_name = ?, price_per_year = ?, deposit_percent = ?, area_size = ?, district_id = ?, area_status = ?, updated_at = CURRENT_TIMESTAMP
-              WHERE area_id = ? AND user_id = ?',
-          [
-            $title,
-            $price,
-            $depositPercent,
-            $areaSize,
-            $districtId,
-            $status,
-            $areaId,
-            $userId,
-          ]
-        );
+        // ปรับ WHERE ตามสิทธิ์ (Admin แก้ไขได้ทุกพื้นที่)
+        if ($isAdmin) {
+          Database::execute(
+            'UPDATE rental_area
+                SET area_name = ?, price_per_year = ?, deposit_percent = ?, area_size = ?, district_id = ?, area_status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE area_id = ?',
+            [
+              $title,
+              $price,
+              $depositPercent,
+              $areaSize,
+              $districtId,
+              $status,
+              $areaId,
+            ]
+          );
+        } else {
+          Database::execute(
+            'UPDATE rental_area
+                SET area_name = ?, price_per_year = ?, deposit_percent = ?, area_size = ?, district_id = ?, area_status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE area_id = ? AND user_id = ?',
+            [
+              $title,
+              $price,
+              $depositPercent,
+              $areaSize,
+              $districtId,
+              $status,
+              $areaId,
+              $userId,
+            ]
+          );
+        }
 
         foreach ($uploadedImages as $url) {
           Database::execute(
@@ -312,7 +363,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       });
 
       flash('success', 'บันทึกการแก้ไขรายการพื้นที่เรียบร้อยแล้ว');
-      redirect('?page=my_properties');
+      redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
     } catch (Throwable $e) {
       app_log('edit_property_update_error', ['area_id' => $areaId, 'error' => $e->getMessage()]);
       $errors[] = 'เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง';
@@ -333,7 +384,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   class="add-property-container"
   data-area-id="<?= (int)$areaId; ?>">
   <div class="form-header">
-    <a href="?page=my_properties" class="btn-back">← กลับรายการของฉัน</a>
+    <?php $backHref = $isAdmin ? '?page=admin_dashboard' : '?page=my_properties'; ?>
+    <a href="<?= e($backHref); ?>" class="btn-back"><?= $isAdmin ? '← กลับแดชบอร์ดแอดมิน' : '← กลับรายการของฉัน'; ?></a>
     <h1>แก้ไขรายการปล่อยเช่า</h1>
     <p class="form-subtitle">แก้ไขข้อมูลพื้นที่ของคุณ</p>
   </div>
@@ -393,8 +445,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="deposit_percent">เปอร์เซ็นต์มัดจำ (%) <span class="required">*</span></label>
-          <input id="deposit_percent" type="number" value="10" readonly disabled>
-          <small class="text-note">กำหนดคงที่ 10% ไม่สามารถแก้ไขได้</small>
+          <input id="deposit_percent" name="deposit_percent" type="number" min="0" max="100" step="0.01" required
+            value="<?= e($_POST['deposit_percent'] ?? (string)($area['deposit_percent'] ?? '10')); ?>">
+          <small class="text-note">ระบุได้ 0 - 100% (ค่าเดิม <?= e((string)($area['deposit_percent'] ?? '10')); ?>%)</small>
         </div>
       </div>
     </div>

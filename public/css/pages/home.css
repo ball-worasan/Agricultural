@@ -207,7 +207,7 @@
 /* Image */
 .home-container .item-image {
   width: 30%;
-  min-height: 200px;
+  height: 200px;
   overflow: hidden;
 }
 
@@ -294,7 +294,7 @@
 
 .home-container .items-section.compact .item-image {
   width: 160px;
-  min-height: 140px;
+  height: 140px;
   flex: 0 0 160px;
 }
 
@@ -431,7 +431,7 @@
 
   .home-container .item-image {
     width: 100%;
-    min-height: 200px;
+    height: 200px;
   }
 
   .home-container .item-details {
@@ -467,7 +467,7 @@
 
   .home-container .items-section.compact .item-image {
     width: 100px;
-    min-height: 120px;
+    height: 120px;
     flex: 0 0 100px;
   }
 

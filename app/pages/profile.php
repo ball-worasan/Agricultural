@@ -7,7 +7,7 @@ if (!defined('APP_PATH')) {
 }
 
 $helpersFile  = APP_PATH . '/includes/helpers.php';
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 
 if (!is_file($helpersFile) || !is_file($databaseFile)) {
   http_response_code(500);

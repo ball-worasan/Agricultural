@@ -9,7 +9,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', dirname(__DIR__, 2));
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('detail_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -25,17 +25,8 @@ if (!is_file($helpersFile)) {
   return;
 }
 
-$notificationServiceFile = APP_PATH . '/includes/NotificationService.php';
-if (!is_file($notificationServiceFile)) {
-  app_log('detail_notification_service_missing', ['file' => $notificationServiceFile]);
-  // เดินต่อหากไม่มี notification service
-}
-
 require_once $databaseFile;
 require_once $helpersFile;
-if (is_file($notificationServiceFile)) {
-  require_once $notificationServiceFile;
-}
 
 // ----------------------------
 // เริ่มเซสชัน
@@ -67,7 +58,7 @@ if ($id <= 0) {
 $fetchArea = static function (int $areaId): ?array {
   try {
     $row = Database::fetchOne(
-      'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.area_status,
+      'SELECT ra.area_id, ra.user_id, ra.area_name, ra.price_per_year, ra.deposit_percent, ra.area_size, ra.area_status, ra.created_at,
               d.district_name, p.province_name
        FROM rental_area ra
        JOIN district d ON ra.district_id = d.district_id
@@ -219,6 +210,10 @@ if (!empty($item['province_name'])) {
 $areaSizeLabel = number_format((float)($item['area_size'] ?? 0), 2) . ' ไร่';
 $descText = 'ไม่มีรายละเอียดเพิ่มเติม';
 
+// วันที่สร้าง
+$createdAt = isset($item['created_at']) ? (string)$item['created_at'] : '';
+$displayCreatedDate = $createdAt !== '' ? date('d/m/Y H:i', strtotime($createdAt)) : '-';
+
 ?>
 <div
   class="detail-container compact"
@@ -231,9 +226,9 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
       <a href="?page=home" class="back-button minimal" aria-label="กลับหน้ารายการ">ย้อนกลับ</a>
       <div class="topbar-right">
         <h1 class="detail-title"><?= e($titleText); ?></h1>
-        <?php if ($locationText !== ''): ?>
-          <span class="meta-location">📍 <?= e($locationText); ?></span>
-        <?php endif; ?>
+        <span class="meta-location">
+          <?php if ($locationText !== ''): ?>📍 <?= e($locationText); ?> • <?php endif; ?>🕐 <?= e($displayCreatedDate); ?>
+        </span>
       </div>
     </div>
 
@@ -242,11 +237,12 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
         <div class="image-gallery">
           <div class="main-image-wrapper">
             <img
-              data-src="<?= e($imageUrls[0]); ?>"
+              src="<?= e($imageUrls[0]); ?>"
               alt="<?= e($titleText !== '' ? $titleText : 'ภาพพื้นที่'); ?>"
               id="mainImage"
               class="main-image"
-              loading="lazy"
+              loading="eager"
+              fetchpriority="high"
               style="background: var(--skeleton-bg);">
 
             <?php if (count($imageUrls) > 1): ?>
@@ -262,7 +258,7 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
             <div class="thumbs" id="thumbs">
               <?php foreach ($imageUrls as $i => $u): ?>
                 <img
-                  data-src="<?= e($u); ?>"
+                  src="<?= e($u); ?>"
                   class="thumb <?= $i === 0 ? 'active' : ''; ?> js-thumb"
                   data-index="<?= (int) $i; ?>"
                   alt="ตัวอย่างรูปที่ <?= (int) ($i + 1); ?>"
@@ -272,7 +268,9 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
             </div>
           <?php endif; ?>
         </div>
+      </div>
 
+      <div class="detail-right">
         <div class="description-box" id="descriptionBox">
           <h2>รายละเอียด</h2>
           <p><?= nl2br(e($descText)); ?></p>
@@ -319,9 +317,8 @@ $descText = 'ไม่มีรายละเอียดเพิ่มเต�
 
           <div class="date-preview" id="datePreview"></div>
         </div>
-      </div>
 
-      <div class="detail-right">
+
         <div class="info-box">
           <h2 id="boxTitle">ข้อมูลพื้นที่</h2>
 

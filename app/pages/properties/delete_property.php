@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('delete_property_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
@@ -53,6 +53,9 @@ if ($user === null) {
 }
 
 $userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
+$userRole = (int)($user['role'] ?? 0);
+$isAdmin = ($userRole === ROLE_ADMIN);
+
 if ($userId <= 0) {
   app_log('delete_property_invalid_user', ['session_user' => $user]);
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
@@ -74,18 +77,40 @@ if ($areaId <= 0) {
 }
 
 try {
-  // ✅ ต้องเป็นของ user นี้เท่านั้น
-  $area = Database::fetchOne(
-    'SELECT area_id, user_id FROM rental_area WHERE area_id = ? AND user_id = ? LIMIT 1',
-    [$areaId, $userId]
-  );
+  // ✅ ต้องเป็นของ user นี้เท่านั้น (หรือแอดมิน)
+  if ($isAdmin) {
+    $area = Database::fetchOne(
+      'SELECT area_id, user_id, area_status FROM rental_area WHERE area_id = ? LIMIT 1',
+      [$areaId]
+    );
+  } else {
+    $area = Database::fetchOne(
+      'SELECT area_id, user_id, area_status FROM rental_area WHERE area_id = ? AND user_id = ? LIMIT 1',
+      [$areaId, $userId]
+    );
+  }
 
-  if (!$area || (int)$area['user_id'] !== $userId) {
+  if (!$area) {
+    app_log('delete_property_not_found', [
+      'user_id'  => $userId,
+      'area_id' => $areaId,
+    ]);
+    flash('error', 'ไม่พบรายการพื้นที่ที่ต้องการลบ');
+    redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
+  }
+
+  if (!$isAdmin && (int)$area['user_id'] !== $userId) {
     app_log('delete_property_unauthorized', [
       'user_id'  => $userId,
       'area_id' => $areaId,
     ]);
     flash('error', 'คุณไม่มีสิทธิ์ลบรายการนี้');
+    redirect('?page=my_properties');
+  }
+
+  // ป้องกันการลบพื้นที่ที่ติดจองหรือปิดให้เช่าแล้ว (ยกเว้นแอดมิน)
+  if (!$isAdmin && in_array((string)($area['area_status'] ?? ''), ['booked', 'unavailable'], true)) {
+    flash('error', 'ไม่สามารถลบพื้นที่ที่ติดจองหรือปิดให้เช่าแล้วได้');
     redirect('?page=my_properties');
   }
 
@@ -110,7 +135,7 @@ try {
     }
   }
 
-  Database::transaction(function () use ($areaId, $filePaths, $userId) {
+  Database::transaction(function () use ($areaId, $filePaths, $userId, $isAdmin) {
     // ลบไฟล์จริง (ถ้ามี)
     foreach (array_keys($filePaths) as $path) {
       if (is_file($path)) {
@@ -124,11 +149,15 @@ try {
     // ลบการจองที่อ้างถึงพื้นที่นี้ (มี ON DELETE CASCADE แต่ลบไว้อุ่นใจ)
     Database::execute('DELETE FROM booking_deposit WHERE area_id = ?', [$areaId]);
 
-    // ลบพื้นที่
-    Database::execute(
-      'DELETE FROM rental_area WHERE area_id = ? AND user_id = ?',
-      [$areaId, $userId]
-    );
+    // ลบพื้นที่ (ตามสิทธิ์)
+    if ($isAdmin) {
+      Database::execute('DELETE FROM rental_area WHERE area_id = ?', [$areaId]);
+    } else {
+      Database::execute(
+        'DELETE FROM rental_area WHERE area_id = ? AND user_id = ?',
+        [$areaId, $userId]
+      );
+    }
   });
 
   app_log('delete_property_success', [
@@ -137,7 +166,7 @@ try {
   ]);
 
   flash('success', 'ลบรายการพื้นที่เรียบร้อยแล้ว');
-  redirect('?page=my_properties');
+  redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
 } catch (Throwable $e) {
   app_log('delete_property_error', [
     'user_id' => $userId,
@@ -146,5 +175,5 @@ try {
   ]);
 
   flash('error', 'เกิดข้อผิดพลาดในการลบรายการ กรุณาลองใหม่อีกครั้ง');
-  redirect('?page=my_properties');
+  redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
 }

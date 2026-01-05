@@ -12,7 +12,7 @@ if (!defined('APP_PATH')) {
   define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('delete_property_image_database_file_missing', ['file' => $databaseFile]);
   json_response(['success' => false, 'message' => 'System error'], 500);
@@ -71,6 +71,9 @@ if ($user === null) {
 }
 
 $userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
+// ระบุสิทธิ์ผู้ใช้
+$userRole = (int)($user['role'] ?? 0);
+$isAdmin  = ($userRole === ROLE_ADMIN);
 if ($userId <= 0) {
   app_log('delete_property_image_invalid_user', ['session_user' => $user]);
   $respond(401, ['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง']);
@@ -95,13 +98,26 @@ if ($imageId <= 0 || $areaId <= 0) {
 }
 
 try {
-  $area = Database::fetchOne(
-    'SELECT area_id FROM rental_area WHERE area_id = ? AND user_id = ? LIMIT 1',
-    [$areaId, $userId]
-  );
-  if (!$area) {
-    $respond(403, ['success' => false, 'message' => 'ไม่มีสิทธิ์ลบรูปภาพนี้']);
-    return;
+  if ($isAdmin) {
+    // แอดมินสามารถลบรูปภาพได้ทุกพื้นที่ เพียงตรวจสอบว่า area มีอยู่จริง
+    $area = Database::fetchOne(
+      'SELECT area_id FROM rental_area WHERE area_id = ? LIMIT 1',
+      [$areaId]
+    );
+    if (!$area) {
+      $respond(404, ['success' => false, 'message' => 'ไม่พบพื้นที่ที่ระบุ']);
+      return;
+    }
+  } else {
+    // สมาชิกทั่วไปต้องเป็นเจ้าของพื้นที่
+    $area = Database::fetchOne(
+      'SELECT area_id FROM rental_area WHERE area_id = ? AND user_id = ? LIMIT 1',
+      [$areaId, $userId]
+    );
+    if (!$area) {
+      $respond(403, ['success' => false, 'message' => 'ไม่มีสิทธิ์ลบรูปภาพนี้']);
+      return;
+    }
   }
 
   $image = Database::fetchOne(

@@ -9,11 +9,11 @@ if (!defined('APP_PATH')) {
   return;
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
   app_log('home_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่พบไฟล์ Database.php</p></div>';
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่พบไฟล์ Database</p></div>';
   return;
 }
 
@@ -22,7 +22,7 @@ require_once $databaseFile;
 if (!class_exists('Database')) {
   app_log('home_database_class_missing_after_require', ['file' => $databaseFile]);
   http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>โหลด Database.php แล้วแต่ยังไม่มีคลาส</p></div>';
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>โหลด Database แล้วแต่ยังไม่มีคลาส</p></div>';
   return;
 }
 
@@ -60,6 +60,7 @@ $fetchAreasPage = static function (int $offset, int $limit): array {
         ra.area_size,
         ra.area_status,
         ra.district_id,
+        ra.created_at,
         d.district_name,
         p.province_name,
         COALESCE(ai.image_url, '/images/placeholder.jpg') AS main_image
@@ -214,9 +215,10 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
           $mainImage = $svgPlaceholder;
         }
 
-        // ไม่มี created_at ในสคีมาใหม่ แสดงวันที่เป็น '-' และใช้ไม่สำหรับ sort
-        $dataDate    = '1970-01-01';
-        $displayDate = '-';
+        // แสดงวันที่สร้างจริงจากฐานข้อมูล
+        $createdAt = isset($item['created_at']) ? (string)$item['created_at'] : '';
+        $dataDate = $createdAt !== '' ? date('Y-m-d', strtotime($createdAt)) : '1970-01-01';
+        $displayDate = $createdAt !== '' ? date('d/m/Y', strtotime($createdAt)) : '-';
 
         $province = isset($item['province_name']) ? (string)$item['province_name'] : '';
         $district = isset($item['district_name']) ? (string)$item['district_name'] : '';
@@ -259,13 +261,13 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
           <div class="item-details">
             <h3 class="item-title"><?= e($titleText); ?></h3>
             <p class="item-location">
-              <?= e($locationText); ?>
+              📍<?= e($locationText); ?>
             </p>
 
             <div class="item-meta">
-              <span class="meta-price"><?= number_format($priceRaw); ?> บาท/ปี</span>
+              <span class="meta-date">🕐 <?= e($displayDate); ?></span>
               <span class="meta-deposit">มัดจำ ~<?= number_format($depositRaw); ?> บาท (<?= number_format($depositPct, 2); ?>%)</span>
-              <span class="meta-date"><?= e($displayDate); ?></span>
+              <span class="meta-price"><?= number_format($priceRaw); ?> บาท/ปี</span>
             </div>
           </div>
         </a>

@@ -46,14 +46,30 @@
   // ================================
   if (signupForm) {
     signupForm.addEventListener("submit", function (e) {
-      // Client-side validation
-      if (!signupForm.checkValidity()) {
+      // ตรวจสอบฟิลด์ที่จำเป็นทั้งหมด
+      const firstname = firstnameInput.value.trim();
+      const lastname = lastnameInput.value.trim();
+      const address = signupForm.querySelector("#address")?.value.trim() || "";
+      const phone = phoneInput.value.replace(/\D/g, "");
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      const passwordConfirm = passwordConfirmInput.value;
+
+      // ตรวจสอบฟิลด์ว่าง
+      if (
+        !firstname ||
+        !lastname ||
+        !address ||
+        !phone ||
+        !username ||
+        !password ||
+        !passwordConfirm
+      ) {
         e.preventDefault();
-        alert("กรุณากรอกข้อมูลให้ครบถ้วนและถูกต้อง");
+        alert("กรุณากรอกข้อมูลให้ครบถ้วน");
         return;
       }
 
-      const phone = phoneInput.value.replace(/\D/g, "");
       if (phone.length < 9 || phone.length > 10) {
         e.preventDefault();
         alert("กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง (9-10 หลัก)");
@@ -61,7 +77,6 @@
         return;
       }
 
-      const username = usernameInput.value.trim();
       if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
         e.preventDefault();
         alert(
@@ -71,8 +86,6 @@
         return;
       }
 
-      const password = passwordInput.value;
-      const passwordConfirm = passwordConfirmInput.value;
       if (password !== passwordConfirm) {
         e.preventDefault();
         alert("รหัสผ่านไม่ตรงกัน");

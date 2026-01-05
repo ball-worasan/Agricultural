@@ -95,7 +95,6 @@ function app_session_start(): void
 
   session_set_cookie_params($params);
   session_start();
-
 }
 
 

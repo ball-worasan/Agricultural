@@ -2,578 +2,498 @@
 
 declare(strict_types=1);
 
-// ----------------------------
-// โหลดไฟล์แบบกันพลาด
-// ----------------------------
+if (!defined('BASE_PATH')) {
+  define('BASE_PATH', dirname(__DIR__, 2));
+}
 if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
+  define('APP_PATH', BASE_PATH . '/app');
 }
 
-$databaseFile = APP_PATH . '/config/Database.php';
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$termMonths = 12; // สัญญา 1 ปีเท่านั้น
+
+$databaseFile = APP_PATH . '/config/database.php';
 if (!is_file($databaseFile)) {
-  app_log('contract_database_file_missing', ['file' => $databaseFile]);
   http_response_code(500);
-  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    json_response(['success' => false, 'message' => 'System error'], 500);
-  } else {
-    echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
-  }
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
   return;
 }
 
 $helpersFile = APP_PATH . '/includes/helpers.php';
 if (!is_file($helpersFile)) {
-  app_log('contract_helpers_file_missing', ['file' => $helpersFile]);
   http_response_code(500);
-  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    json_response(['success' => false, 'message' => 'System error'], 500);
-  } else {
-    echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
-  }
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
   return;
 }
-
-$contractServiceFile = APP_PATH . '/includes/ContractService.php';
-$notificationServiceFile = APP_PATH . '/includes/NotificationService.php';
 
 require_once $databaseFile;
 require_once $helpersFile;
 
-if (is_file($contractServiceFile)) {
-  require_once $contractServiceFile;
-}
-if (is_file($notificationServiceFile)) {
-  require_once $notificationServiceFile;
-}
-
-// ----------------------------
-// เริ่มเซสชัน
-// ----------------------------
 try {
   app_session_start();
 } catch (Throwable $e) {
   app_log('contract_session_error', ['error' => $e->getMessage()]);
   http_response_code(500);
-  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    json_response(['success' => false, 'message' => 'Session error'], 500);
-  } else {
-    echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
-  }
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
   return;
 }
 
-// ----------------------------
-// Get request method
-// ----------------------------
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-
-// ----------------------------
-// เช็กสิทธิ์ล็อกอิน
-// ----------------------------
 $user = current_user();
 if ($user === null) {
-  if ($method === 'POST') {
-    json_response(['success' => false, 'message' => 'กรุณาเข้าสู่ระบบ'], 401);
-  } else {
-    flash('error', 'กรุณาเข้าสู่ระบบก่อน');
-    redirect('?page=signin');
-  }
-  return;
+  flash('error', 'กรุณาเข้าสู่ระบบก่อน');
+  redirect('?page=signin');
 }
 
-$userId = (int) ($user['id'] ?? 0);
+$userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
+$userRole = (int)($user['role'] ?? 0);
+$isAdmin = ($userRole === ROLE_ADMIN);
 if ($userId <= 0) {
-  if ($method === 'POST') {
-    json_response(['success' => false, 'message' => 'ข้อมูลผู้ใช้ไม่ถูกต้อง'], 401);
-  } else {
-    flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
-    redirect('?page=signin');
-  }
-  return;
+  flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
+  redirect('?page=signin');
 }
 
-// ----------------------
-// POST: สร้างหรืออัปเดตสัญญา
-// ----------------------
-if ($method === 'POST' && isset($_POST['create_contract'])) {
-  $bookingId = isset($_POST['booking_id']) ? (int) $_POST['booking_id'] : 0;
-  $rentalPeriodMonths = isset($_POST['rental_period_months']) ? (int) $_POST['rental_period_months'] : 12;
-  $startDate = trim((string) ($_POST['start_date'] ?? ''));
-  $termsAndConditions = trim((string) ($_POST['terms_and_conditions'] ?? ''));
-
-  if ($bookingId <= 0 || $startDate === '') {
-    json_response(['success' => false, 'message' => 'ข้อมูลไม่ครบถ้วน'], 400);
-  }
-
-  try {
-    // ตรวจสอบว่า booking นี้เป็นของผู้ใช้จริงและอนุมัติแล้ว
-    $booking = Database::fetchOne(
-      '
-            SELECT b.*, p.owner_id, p.title AS property_title, p.price 
-            FROM bookings b
-            JOIN properties p ON b.property_id = p.id
-            WHERE b.id = ? AND b.user_id = ? AND b.booking_status = "approved"
-            ',
-      [$bookingId, $userId]
-    );
-
-    if (!$booking) {
-      json_response(['success' => false, 'message' => 'ไม่พบการจองหรือยังไม่ได้รับการอนุมัติ'], 404);
-    }
-
-    // ตรวจสอบว่ามีสัญญาอยู่แล้วหรือไม่
-    $existingContract = Database::fetchOne(
-      'SELECT id FROM contracts WHERE booking_id = ?',
-      [$bookingId]
-    );
-
-    if ($existingContract) {
-      json_response(['success' => false, 'message' => 'สัญญานี้ถูกสร้างไว้แล้ว'], 400);
-    }
-
-    $propertyId = (int) $booking['property_id'];
-    $ownerId = (int) $booking['owner_id'];
-    $depositAmount = (float) $booking['deposit_amount'];
-    $totalAmount = (float) $booking['total_amount'];
-
-    // คำนวณค่าเช่าต่อเดือน
-    $monthlyRent = $rentalPeriodMonths > 0 ? ceil($totalAmount / $rentalPeriodMonths) : 0;
-
-    // คำนวณวันสิ้นสุดสัญญา
-    $startDateObj = new DateTimeImmutable($startDate);
-    $endDateObj = $startDateObj->modify("+{$rentalPeriodMonths} months");
-    $endDate = $endDateObj->format('Y-m-d');
-
-    // สร้างเลขที่สัญญา
-    $contractNumber = sprintf('CON-%04d-%s', $bookingId, date('Ymd'));
-
-    // จัดการอัปโหลดไฟล์สัญญา (ถ้ามี)
-    $contractFile = null;
-    if (isset($_FILES['contract_file']) && $_FILES['contract_file']['error'] === UPLOAD_ERR_OK) {
-      $uploadDir = APP_PATH . '/public/storage/uploads/contracts';
-
-      if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0755, true);
-      }
-
-      $file = $_FILES['contract_file'];
-      $allowedTypes = ['application/pdf'];
-      $maxSize = 10 * 1024 * 1024; // 10MB
-
-      $finfo = finfo_open(FILEINFO_MIME_TYPE);
-      $mimeType = finfo_file($finfo, $file['tmp_name']);
-
-      if (!in_array($mimeType, $allowedTypes, true)) {
-        json_response(['success' => false, 'message' => 'รองรับเฉพาะไฟล์ PDF'], 400);
-      }
-
-      if ($file['size'] > $maxSize) {
-        json_response(['success' => false, 'message' => 'ไฟล์ใหญ่เกิน 10MB'], 400);
-      }
-
-      $newFileName = sprintf(
-        'contract_%d_%s.pdf',
-        $bookingId,
-        date('YmdHis')
-      );
-
-      $destination = $uploadDir . '/' . $newFileName;
-
-      if (move_uploaded_file($file['tmp_name'], $destination)) {
-        $contractFile = '/storage/uploads/contracts/' . $newFileName;
-      }
-    }
-
-    // สร้างสัญญา
-    Database::execute(
-      '
-            INSERT INTO contracts (
-                booking_id, user_id, property_id, owner_id,
-                contract_number, rental_period_months,
-                start_date, end_date,
-                monthly_rent, deposit_amount, total_amount,
-                terms_and_conditions, contract_file,
-                status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ',
-      [
-        $bookingId,
-        $userId,
-        $propertyId,
-        $ownerId,
-        $contractNumber,
-        $rentalPeriodMonths,
-        $startDate,
-        $endDate,
-        $monthlyRent,
-        $depositAmount,
-        $totalAmount,
-        $termsAndConditions,
-        $contractFile,
-        'waiting_signature'
-      ]
-    );
-
-    $contractId = (int)Database::lastInsertId();
-
-    // สร้างตารางการชำระรายเดือน
-    require_once APP_PATH . '/includes/PaymentService.php';
-    PaymentService::createMonthlySchedule(
-      $contractId,
-      $bookingId,
-      $userId,
-      $propertyId,
-      $monthlyRent,
-      $rentalPeriodMonths
-    );
-
-    app_log('contract_created', [
-      'booking_id' => $bookingId,
-      'contract_id' => $contractId,
-      'user_id' => $userId,
-      'contract_number' => $contractNumber,
-    ]);
-
-    json_response([
-      'success' => true,
-      'message' => 'สร้างสัญญาเรียบร้อยแล้ว',
-      'contract_number' => $contractNumber,
-    ]);
-  } catch (Throwable $e) {
-    app_log('contract_create_error', [
-      'booking_id' => $bookingId,
-      'error' => $e->getMessage(),
-    ]);
-
-    json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาดในการสร้างสัญญา'], 500);
-  }
-}
-
-// ----------------------
-// GET: แสดงหน้าสร้างสัญญา
-// ----------------------
-$bookingId = isset($_GET['booking_id']) ? (int) $_GET['booking_id'] : 0;
-
+$bookingId = (int)($_POST['booking_id'] ?? $_GET['booking_id'] ?? 0);
 if ($bookingId <= 0) {
+  flash('error', 'ไม่พบบุ๊กกิ้งที่ต้องการทำสัญญา');
   redirect('?page=history');
 }
 
-// ดึงข้อมูล booking
-$booking = Database::fetchOne(
-  '
-    SELECT 
-        bd.*,
-        ra.area_name,
-        ra.area_size,
-        ra.price_per_year,
-        ra.user_id AS owner_id,
-        o.full_name AS owner_name,
-        o.phone AS owner_phone
-    FROM booking_deposit bd
-    JOIN rental_area ra ON bd.area_id = ra.area_id
-    JOIN users o ON ra.user_id = o.user_id
-    WHERE bd.booking_id = ? AND bd.user_id = ? AND bd.deposit_status = "approved"
-    ',
-  [$bookingId, $userId]
-);
+try {
+  $booking = Database::fetchOne(
+    'SELECT bd.booking_id, bd.area_id, bd.user_id AS tenant_id, bd.booking_date, bd.deposit_status, bd.deposit_amount,
+            ra.area_name, ra.area_size, ra.price_per_year, ra.user_id AS owner_id,
+            d.district_name, p.province_name,
+            uo.full_name AS owner_name, uo.phone AS owner_phone,
+            ut.full_name AS tenant_name, ut.phone AS tenant_phone
+       FROM booking_deposit bd
+       JOIN rental_area ra ON bd.area_id = ra.area_id
+       JOIN district d      ON ra.district_id = d.district_id
+       JOIN province p      ON d.province_id = p.province_id
+       JOIN users uo ON ra.user_id = uo.user_id
+       JOIN users ut ON bd.user_id = ut.user_id
+      WHERE bd.booking_id = ?
+      LIMIT 1',
+    [$bookingId]
+  );
+} catch (Throwable $e) {
+  app_log('contract_fetch_booking_error', ['booking_id' => $bookingId, 'error' => $e->getMessage()]);
+  $booking = null;
+}
 
 if (!$booking) {
-  flash('error', 'ไม่พบการจองหรือยังไม่ได้รับการอนุมัติ');
+  flash('error', 'ไม่พบข้อมูลการจอง');
   redirect('?page=history');
 }
 
-// ตรวจสอบว่ามีสัญญาอยู่แล้วหรือไม่
-$existingContract = Database::fetchOne(
-  'SELECT contract_id FROM contract WHERE booking_id = ?',
-  [$bookingId]
-);
+$ownerId = (int)($booking['owner_id'] ?? 0);
+$tenantId = (int)($booking['tenant_id'] ?? 0);
 
-if ($existingContract) {
-  // ถ้ามีสัญญาแล้ว redirect ไปหน้าประวัติ
-  flash('info', 'สัญญานี้ถูกสร้างไว้แล้ว คุณสามารถดูได้จากประวัติการเช่า');
+if (!$isAdmin && $userId !== $ownerId && $userId !== $tenantId) {
+  flash('error', 'คุณไม่มีสิทธิ์ทำสัญญาสำหรับรายการนี้');
   redirect('?page=history');
 }
 
-$areaName = $booking['area_name'] ?? '';
-$areaSize = (float) ($booking['area_size'] ?? 0);
-$annualPrice = (float) ($booking['price_per_year'] ?? 0);
-$depositAmount = (float) ($booking['deposit_amount'] ?? 0);
+// ตัวแปรเพื่อตรวจสอบว่าเป็นเจ้าของหรือผู้เช่า
+$isOwner = ($userId === $ownerId);
+$isTenant = ($userId === $tenantId);
+$canCreateContract = ($isAdmin || $isOwner); // เพียงผู้ปล่อยเช่าเท่านั้นที่สามารถสร้างสัญญา
 
-$ownerName = $booking['owner_name'] ?? '';
-$ownerPhone = $booking['owner_phone'] ?? '';
+$depositStatus = (string)($booking['deposit_status'] ?? 'pending');
+if ($depositStatus !== 'approved') {
+  flash('error', 'การจองยังไม่ได้รับการอนุมัติ ไม่สามารถทำสัญญาได้');
+  redirect('?page=history');
+}
 
-// ข้อมูลผู้เช่า
-$tenantName = $user['full_name'] ?? '';
-$tenantPhone = $user['phone'] ?? '';
+// ตรวจสอบว่าเป็นเจ้าของสำหรับการสร้างสัญญา
+if (!$canCreateContract && $method === 'POST' && isset($_POST['create_contract'])) {
+  flash('error', 'คุณไม่มีสิทธิ์สร้างสัญญา เฉพาะผู้ปล่อยเช่าเท่านั้น');
+  redirect('?page=history');
+}
 
-// เงื่อนไขสัญญามาตรฐาน
-$defaultTerms = "1. ผู้เช่าตกลงเช่าพื้นที่เกษตรเพื่อทำการเกษตรเท่านั้น
+try {
+  $contract = Database::fetchOne(
+    'SELECT contract_id, start_date, end_date, price_per_year, total_price, terms, contract_file, created_at
+       FROM contract
+      WHERE booking_id = ?
+      LIMIT 1',
+    [$bookingId]
+  );
+} catch (Throwable $e) {
+  app_log('contract_existing_fetch_error', ['booking_id' => $bookingId, 'error' => $e->getMessage()]);
+  $contract = null;
+}
 
-2. ผู้เช่าต้องดูแลรักษาพื้นที่ให้อยู่ในสภาพดี ไม่ทำลาย หรือเปลี่ยนแปลงโครงสร้างโดยไม่ได้รับอนุญาต
+$areaName = (string)($booking['area_name'] ?? '');
+$areaSize = (float)($booking['area_size'] ?? 0);
+$pricePerYear = (float)($booking['price_per_year'] ?? 0);
+$depositAmount = (float)($booking['deposit_amount'] ?? 0);
+$ownerName = (string)($booking['owner_name'] ?? '');
+$ownerPhone = (string)($booking['owner_phone'] ?? '');
+$tenantName = (string)($booking['tenant_name'] ?? '');
+$tenantPhone = (string)($booking['tenant_phone'] ?? '');
 
-3. ค่าเช่าจะต้องชำระทุกวันที่ 1 ของเดือน หากชำระล่าช้าเกิน 7 วัน จะต้องเสียค่าปรับ 5% ต่อเดือน
+$defaultStart = date('Y-m-d');
+$defaultEnd = (new DateTimeImmutable($defaultStart))->modify('+' . $termMonths . ' months')->format('Y-m-d');
+$errors = [];
 
-4. หากผู้เช่าประสงค์จะเลิกสัญญาก่อนกำหนด ต้องแจ้งล่วงหน้า 30 วัน และเงินมัดจำจะไม่ถูกคืน
+$defaultTerms = "1. ผู้เช่าตกลงเช่าพื้นที่เพื่อทำเกษตรกรรมตามที่ตกลงเท่านั้น\n\n2. ผู้เช่าต้องดูแลรักษาพื้นที่ให้อยู่ในสภาพดี ไม่ทำลายหรือเปลี่ยนแปลงโครงสร้างโดยไม่ได้รับอนุญาต\n\n3. ค่าเช่าต้องชำระตามกำหนด หากล่าช้าเกิน 7 วัน อาจมีค่าปรับ 5% ต่อเดือน\n\n4. การเลิกสัญญาก่อนกำหนดต้องแจ้งล่วงหน้า 30 วัน เงินมัดจำอาจไม่ถูกคืนตามสภาพพื้นที่\n\n5. ผู้ให้เช่าสามารถเข้าตรวจสอบพื้นที่ได้โดยแจ้งล่วงหน้า 3 วัน\n\n6. เมื่อสิ้นสุดสัญญา ผู้เช่าต้องส่งมอบพื้นที่คืนในสภาพเดิม มิฉะนั้นเงินมัดจำจะถูกหักเพื่อซ่อมแซม\n\n7. การต่ออายุสัญญาต้องตกลงกันล่วงหน้าอย่างน้อย 60 วัน\n\n8. กรณีเหตุสุดวิสัย คู่สัญญาไม่ต้องรับผิดชอบต่อความเสียหายที่เกิดขึ้น";
 
-5. ผู้ให้เช่าสงวนสิทธิ์ในการเข้าตรวจสอบพื้นที่ได้โดยแจ้งล่วงหน้า 3 วัน
+// โหลดค่าธรรมเนียม
+try {
+  $feeData = Database::fetchOne('SELECT fee_rate FROM fee LIMIT 1', []);
+  $feeRate = (float)($feeData['fee_rate'] ?? 0);
+} catch (Throwable $e) {
+  app_log('contract_fee_fetch_error', ['error' => $e->getMessage()]);
+  $feeRate = 0;
+}
 
-6. เมื่อสิ้นสุดสัญญา ผู้เช่าต้องส่งมอบพื้นที่คืนในสภาพเดิม มิฉะนั้นเงินมัดจำจะถูกหักเพื่อซ่อมแซม
+$feeAmount = $pricePerYear * ($feeRate / 100);
+$totalDue = $pricePerYear + $feeAmount;
+$remainingDue = $totalDue - $depositAmount;
 
-7. การต่ออายุสัญญาต้องตกลงกันล่วงหน้าอย่างน้อย 60 วัน
+if ($method === 'POST' && isset($_POST['create_contract']) && !$contract) {
+  $startDate = trim((string)($_POST['start_date'] ?? ''));
+  $terms = trim((string)($_POST['terms'] ?? ''));
 
-8. กรณีเกิดเหตุสุดวิสัย เช่น ภัยธรรมชาติ คู่สัญญาทั้งสองฝ่ายจะไม่รับผิดชอบต่อกัน";
+  $startObj = DateTimeImmutable::createFromFormat('Y-m-d', $startDate);
+  $startErr = DateTimeImmutable::getLastErrors();
+  if (!$startObj || ($startErr['warning_count'] ?? 0) > 0 || ($startErr['error_count'] ?? 0) > 0) {
+    $errors[] = 'รูปแบบวันที่ไม่ถูกต้อง';
+  }
+
+  $endObj = $startObj ? $startObj->modify('+' . $termMonths . ' months') : null;
+  if (!$endObj) {
+    $errors[] = 'ไม่สามารถคำนวณวันสิ้นสุดสัญญาได้';
+  }
+
+  $contractFilePath = null;
+  if (isset($_FILES['contract_file']) && ($_FILES['contract_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+    $file = $_FILES['contract_file'];
+    $maxSize = 10 * 1024 * 1024; // 10MB
+    $allowedTypes = ['application/pdf'];
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mimeType = finfo_file($finfo, $file['tmp_name']);
+    if (!in_array($mimeType, $allowedTypes, true)) {
+      $errors[] = 'รองรับเฉพาะไฟล์ PDF';
+    }
+    if ((int)$file['size'] > $maxSize) {
+      $errors[] = 'ไฟล์สัญญาต้องไม่เกิน 10MB';
+    }
+
+    if (empty($errors)) {
+      $uploadDir = BASE_PATH . '/public/storage/uploads/contracts';
+      if (!is_dir($uploadDir)) {
+        if (!mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+          $errors[] = 'ไม่สามารถสร้างโฟลเดอร์อัปโหลดได้';
+        }
+      }
+
+      if (empty($errors)) {
+        $newFileName = sprintf('contract_%d_%s.pdf', $bookingId, date('YmdHis'));
+        $destination = $uploadDir . '/' . $newFileName;
+        if (move_uploaded_file($file['tmp_name'], $destination)) {
+          $contractFilePath = '/storage/uploads/contracts/' . $newFileName;
+        } else {
+          $errors[] = 'อัปโหลดไฟล์ไม่สำเร็จ';
+        }
+      }
+    }
+  }
+
+  if (empty($errors)) {
+    try {
+      $newContractId = Database::transaction(function (PDO $pdo) use ($bookingId, $startObj, $endObj, $pricePerYear, $terms, $contractFilePath) {
+        Database::execute(
+          'INSERT INTO contract (booking_id, start_date, end_date, price_per_year, total_price, terms, contract_file, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+          [
+            $bookingId,
+            $startObj->format('Y-m-d'),
+            $endObj->format('Y-m-d'),
+            $pricePerYear,
+            $pricePerYear,
+            $terms,
+            $contractFilePath,
+          ]
+        );
+
+        return (int)$pdo->lastInsertId();
+      });
+
+      app_log('contract_created', ['booking_id' => $bookingId, 'contract_id' => $newContractId, 'user_id' => $userId]);
+      flash('success', 'สร้างสัญญาเช่า 1 ปีเรียบร้อยแล้ว');
+      redirect('?page=payment&contract_id=' . $newContractId . '&mode=full');
+      return;
+    } catch (Throwable $e) {
+      app_log('contract_create_error', ['booking_id' => $bookingId, 'error' => $e->getMessage()]);
+      $errors[] = 'เกิดข้อผิดพลาดในการสร้างสัญญา: ' . $e->getMessage();
+    }
+  }
+
+  if (!empty($startObj)) {
+    $defaultStart = $startObj->format('Y-m-d');
+    $defaultEnd = $startObj->modify('+' . $termMonths . ' months')->format('Y-m-d');
+  }
+}
 
 ?>
 <div class="contract-container">
-  <div class="page-header">
-    <a href="?page=history" class="back-link">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="19" y1="12" x2="5" y2="12"></line>
-        <polyline points="12 19 5 12 12 5"></polyline>
-      </svg>
-      <span>กลับไปประวัติการเช่า</span>
-    </a>
-  </div>
+  <div class="contract-wrapper">
+    <a href="?page=history" class="back-link">← กลับประวัติการจอง</a>
 
-  <div class="contract-header">
-    <h1>สร้างสัญญาเช่าพื้นที่เกษตร</h1>
-    <p class="subtitle">กรุณากรอกข้อมูลเพื่อสร้างสัญญาเช่า</p>
-  </div>
+    <header class="contract-hero">
+      <div class="hero-head">
+        <div>
+          <p class="eyebrow">สัญญาเช่า 1 ปี</p>
+          <h1>สรุปสัญญาเช่าพื้นที่</h1>
+          <p class="subtitle">พื้นที่: <?= e($areaName); ?> · Booking #<?= (int)$bookingId; ?></p>
+        </div>
+        <div class="hero-badges">
+          <span class="badge">ผู้ให้เช่า: <?= e($ownerName); ?></span>
+          <span class="badge">ผู้เช่า: <?= e($tenantName); ?></span>
+        </div>
+      </div>
 
-  <form id="contractForm" method="POST" enctype="multipart/form-data">
-    <input type="hidden" name="create_contract" value="1">
-    <input type="hidden" name="booking_id" value="<?= $bookingId; ?>">
+      <div class="hero-stats">
+        <div class="stat">
+          <span class="stat-label">จังหวัด / อำเภอ</span>
+          <strong class="stat-value"><?= e(($booking['province_name'] ?? '-') . ' · ' . ($booking['district_name'] ?? '-')); ?></strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">ค่าเช่าต่อปี</span>
+          <strong class="stat-value">฿<?= number_format($pricePerYear, 2); ?></strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">ค่าธรรมเนียม</span>
+          <strong class="stat-value"><?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2) . ' (' . number_format($feeRate, 2) . '%)') : 'ไม่มี'; ?></strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">รวมที่ต้องชำระ</span>
+          <strong class="stat-value">฿<?= number_format($totalDue, 2); ?></strong>
+        </div>
+      </div>
+    </header>
 
-    <div class="contract-sections">
-      <!-- ข้อมูลพื้นที่ -->
-      <div class="section-card">
-        <h3>ข้อมูลพื้นที่เกษตรที่เช่า</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <label>ชื่อพื้นที่</label>
-            <p><?= e($propertyTitle); ?></p>
-          </div>
-          <div class="info-item">
-            <label>ที่ตั้ง</label>
-            <p><?= e($location . ', ' . $province); ?></p>
-          </div>
-          <?php if ($areaText): ?>
-            <div class="info-item">
-              <label>ขนาดพื้นที่</label>
-              <p><?= e($areaText); ?></p>
+    <?php if (!empty($errors)): ?>
+      <div class="alert alert-error">
+        <strong>พบข้อผิดพลาด:</strong>
+        <ul>
+          <?php foreach ($errors as $err): ?>
+            <li><?= e($err); ?></li>
+          <?php endforeach; ?>
+        </ul>
+      </div>
+    <?php endif; ?>
+
+    <div class="info-cards">
+      <div class="info-card">
+        <div class="card-head">
+          <span class="chip">พื้นที่</span>
+          <h3><?= e($areaName); ?></h3>
+        </div>
+        <ul class="card-list">
+          <li><span>รหัส Booking</span><strong>#<?= str_pad((string)$bookingId, 6, '0', STR_PAD_LEFT); ?></strong></li>
+          <li><span>จังหวัด / อำเภอ</span><strong><?= e(($booking['province_name'] ?? '-') . ' · ' . ($booking['district_name'] ?? '-')); ?></strong></li>
+          <li><span>ขนาดพื้นที่</span><strong><?= $areaSize > 0 ? e(number_format($areaSize, 2) . ' ตร.ม.') : '-'; ?></strong></li>
+          <li><span>ค่าเช่าต่อปี</span><strong>฿<?= number_format($pricePerYear, 2); ?></strong></li>
+          <li><span>ค่าธรรมเนียม</span><strong><?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2)) : 'ไม่มี'; ?></strong></li>
+          <li><span>มัดจำที่ชำระ</span><strong>฿<?= number_format($depositAmount, 2); ?></strong></li>
+          <li><span>รวมต้องชำระ</span><strong>฿<?= number_format($totalDue, 2); ?></strong></li>
+          <li><span>คงเหลือหลังหักมัดจำ</span><strong>฿<?= number_format($remainingDue, 2); ?></strong></li>
+        </ul>
+      </div>
+
+      <div class="info-card">
+        <div class="card-head">
+          <span class="chip">คู่สัญญา</span>
+          <h3>ผู้ให้เช่า · ผู้เช่า</h3>
+        </div>
+        <ul class="card-list two-col">
+          <li>
+            <span>ผู้ให้เช่า</span>
+            <div class="person">
+              <strong><?= e($ownerName); ?></strong>
+              <small><?= e($ownerPhone); ?></small>
             </div>
-          <?php endif; ?>
-          <?php if ($category): ?>
-            <div class="info-item">
-              <label>ประเภท</label>
-              <p><?= e($category); ?></p>
+          </li>
+          <li>
+            <span>ผู้เช่า</span>
+            <div class="person">
+              <strong><?= e($tenantName); ?></strong>
+              <small><?= e($tenantPhone); ?></small>
             </div>
-          <?php endif; ?>
-        </div>
-      </div>
-
-      <!-- ข้อมูลผู้ให้เช่า -->
-      <div class="section-card">
-        <h3>ข้อมูลผู้ให้เช่า</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <label>ชื่อ-นามสกุล</label>
-            <p><?= e($ownerName); ?></p>
-          </div>
-          <div class="info-item">
-            <label>อีเมล</label>
-            <p><?= e($ownerEmail); ?></p>
-          </div>
-          <div class="info-item">
-            <label>เบอร์โทร</label>
-            <p><?= e($ownerPhone); ?></p>
-          </div>
-        </div>
-      </div>
-
-      <!-- ข้อมูลผู้เช่า -->
-      <div class="section-card">
-        <h3>ข้อมูลผู้เช่า</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <label>ชื่อ-นามสกุล</label>
-            <p><?= e($tenantName); ?></p>
-          </div>
-          <div class="info-item">
-            <label>อีเมล</label>
-            <p><?= e($tenantEmail); ?></p>
-          </div>
-          <div class="info-item">
-            <label>เบอร์โทร</label>
-            <p><?= e($tenantPhone); ?></p>
-          </div>
-        </div>
-      </div>
-
-      <!-- รายละเอียดสัญญา -->
-      <div class="section-card">
-        <h3>รายละเอียดการเช่า</h3>
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="start_date">วันที่เริ่มสัญญา <span class="required">*</span></label>
-            <input
-              type="date"
-              id="start_date"
-              name="start_date"
-              min="<?= date('Y-m-d'); ?>"
-              required>
-          </div>
-
-          <div class="form-group">
-            <label for="rental_period_months">ระยะเวลาเช่า (เดือน) <span class="required">*</span></label>
-            <select id="rental_period_months" name="rental_period_months" required>
-              <option value="6">6 เดือน</option>
-              <option value="12" selected>12 เดือน</option>
-              <option value="24">24 เดือน</option>
-              <option value="36">36 เดือน</option>
-            </select>
-          </div>
-
-          <div class="form-group full-width">
-            <label>ค่าเช่ารวมทั้งปี</label>
-            <p class="amount-display">฿<?= number_format($totalAmount); ?></p>
-          </div>
-
-          <div class="form-group full-width">
-            <label>เงินมัดจำที่ชำระแล้ว</label>
-            <p class="amount-display">฿<?= number_format($depositAmount); ?></p>
-          </div>
-        </div>
-      </div>
-
-      <!-- เงื่อนไขสัญญา -->
-      <div class="section-card">
-        <h3>เงื่อนไขและข้อตกลง</h3>
-        <div class="form-group">
-          <label for="terms_and_conditions">เงื่อนไขสัญญา</label>
-          <textarea
-            id="terms_and_conditions"
-            name="terms_and_conditions"
-            rows="12"><?= e($defaultTerms); ?></textarea>
-          <small>คุณสามารถแก้ไขเงื่อนไขตามความเหมาะสม</small>
-        </div>
-      </div>
-
-      <!-- อัปโหลดไฟล์สัญญา (ถ้ามี) -->
-      <div class="section-card">
-        <h3>อัปโหลดไฟล์สัญญา (ถ้ามีการเตรียมไว้ล่วงหน้า)</h3>
-        <div class="form-group">
-          <label for="contract_file">ไฟล์สัญญา PDF</label>
-          <input
-            type="file"
-            id="contract_file"
-            name="contract_file"
-            accept="application/pdf">
-          <small>รองรับเฉพาะไฟล์ PDF ขนาดไม่เกิน 10MB</small>
-        </div>
-      </div>
-
-      <!-- ข้อตกลง -->
-      <div class="section-card agreement-section">
-        <label class="checkbox-label">
-          <input type="checkbox" id="agree" required>
-          <span>ข้าพเจ้ายอมรับเงื่อนไขและข้อตกลงทั้งหมดที่ระบุไว้ในสัญญานี้</span>
-        </label>
-      </div>
-
-      <!-- ปุ่มดำเนินการ -->
-      <div class="form-actions">
-        <button type="submit" class="btn-submit">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="16" y1="13" x2="8" y2="13"></line>
-            <line x1="16" y1="17" x2="8" y2="17"></line>
-            <polyline points="10 9 9 9 8 9"></polyline>
-          </svg>
-          สร้างสัญญา
-        </button>
-        <a href="?page=history" class="btn-cancel">ยกเลิก</a>
+          </li>
+        </ul>
       </div>
     </div>
-  </form>
+
+    <?php if ($contract): ?>
+      <section class="section-card">
+        <div class="section-head">
+          <span class="step-label">สถานะสัญญา</span>
+          <p class="section-subtitle">สัญญาที่สร้างแล้ว</p>
+        </div>
+        <div class="details-grid">
+          <div>
+            <label>เริ่มสัญญา</label>
+            <p><?= e($contract['start_date']); ?></p>
+          </div>
+          <div>
+            <label>สิ้นสุด</label>
+            <p><?= e($contract['end_date']); ?></p>
+          </div>
+          <div>
+            <label>ค่าเช่าต่อปี</label>
+            <p>฿<?= number_format((float)$contract['price_per_year'], 2); ?></p>
+          </div>
+          <div>
+            <label>ยอดรวม 1 ปี</label>
+            <p>฿<?= number_format((float)($contract['total_price'] ?? $contract['price_per_year']), 2); ?></p>
+          </div>
+          <div>
+            <label>สร้างเมื่อ</label>
+            <p><?= e($contract['created_at'] ?? '-'); ?></p>
+          </div>
+        </div>
+
+        <?php if (!empty($contract['terms'])): ?>
+          <div class="form-group" style="margin-top: 1rem;">
+            <label>เงื่อนไขเพิ่มเติม</label>
+            <textarea rows="8" readonly><?= e($contract['terms']); ?></textarea>
+          </div>
+        <?php endif; ?>
+
+        <?php if (!empty($contract['contract_file'])): ?>
+          <p class="download-link">
+            <a href="<?= e($contract['contract_file']); ?>" target="_blank" rel="noopener">📄 ดาวน์โหลดไฟล์สัญญา</a>
+          </p>
+        <?php endif; ?>
+
+        <?php if ($isTenant): ?>
+          <div class="form-actions">
+            <a href="?page=payment&contract_id=<?= (int)$contract['contract_id']; ?>&mode=full" class="btn-submit">ไปหน้าชำระเงิน</a>
+            <a href="?page=history" class="btn-cancel">กลับประวัติการจอง</a>
+          </div>
+        <?php endif; ?>
+      </section>
+    <?php elseif ($canCreateContract): ?>
+      <form method="POST" enctype="multipart/form-data" class="contract-form">
+        <input type="hidden" name="create_contract" value="1">
+        <input type="hidden" name="booking_id" value="<?= (int)$bookingId; ?>">
+
+        <section class="section-card">
+          <div class="section-head">
+            <span class="step-label">ขั้นตอนที่ 1</span>
+            <h3>ตั้งค่าวันที่สัญญา</h3>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="start_date">วันที่เริ่มสัญญา</label>
+              <input id="start_date" name="start_date" type="date" required value="<?= e($defaultStart); ?>">
+            </div>
+            <div class="form-group">
+              <label for="end_date">สิ้นสุด (อัตโนมัติ +12 เดือน)</label>
+              <input id="end_date" type="date" value="<?= e($defaultEnd); ?>" readonly>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-head">
+            <span class="step-label">ขั้นตอนที่ 2</span>
+            <h3>สรุปค่าเช่า</h3>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>ค่าเช่าต่อปี</label>
+              <input type="text" value="฿<?= number_format($pricePerYear, 2); ?>" readonly>
+            </div>
+            <div class="form-group">
+              <label>ยอดรวมสัญญา 1 ปี</label>
+              <input type="text" value="฿<?= number_format($pricePerYear, 2); ?>" readonly>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-head">
+            <span class="step-label">ขั้นตอนที่ 3</span>
+            <h3>เงื่อนไขเพิ่มเติม</h3>
+          </div>
+          <div class="form-group">
+            <label for="terms">รายละเอียดเงื่อนไข</label>
+            <textarea id="terms" name="terms" rows="8" placeholder="ระบุเงื่อนไขหรือบันทึกเพิ่มเติม (ถ้ามี)"><?= e($_POST['terms'] ?? $defaultTerms); ?></textarea>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-head">
+            <span class="step-label">ขั้นตอนที่ 4</span>
+            <h3>แนบไฟล์สัญญา (เลือกได้)</h3>
+          </div>
+          <div class="form-group">
+            <label for="contract_file">ไฟล์ PDF (ไม่เกิน 10MB)</label>
+            <input id="contract_file" name="contract_file" type="file" accept="application/pdf">
+          </div>
+        </section>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-submit">สร้างสัญญาและไปชำระเงิน</button>
+          <a href="?page=history" class="btn-cancel">ยกเลิก</a>
+        </div>
+      </form>
+    <?php else: ?>
+      <div class="alert alert-error">
+        <strong>ข้อสังเกต:</strong>
+        <p>เฉพาะผู้ปล่อยเช่าเท่านั้นที่สามารถสร้างสัญญาได้ คุณสามารถดูข้อมูลการจองนี้ได้ แต่ไม่สามารถแก้ไขหรือสร้างสัญญา</p>
+      </div>
+
+      <section class="section-card">
+        <div class="section-head">
+          <span class="step-label">สถานะการจอง</span>
+          <p class="section-subtitle">รอการสร้างสัญญา</p>
+        </div>
+        <div class="details-grid">
+          <div>
+            <label>ผู้ปล่อยเช่า</label>
+            <p><?= e($ownerName); ?></p>
+          </div>
+          <div>
+            <label>ผู้เช่า</label>
+            <p><?= e($tenantName); ?></p>
+          </div>
+          <div>
+            <label>ค่าเช่าต่อปี</label>
+            <p>฿<?= number_format($pricePerYear, 2); ?></p>
+          </div>
+          <div>
+            <label>มัดจำที่ชำระ</label>
+            <p>฿<?= number_format($depositAmount, 2); ?></p>
+          </div>
+        </div>
+        <p style="margin-top: 1rem; color: var(--text-secondary);">⏳ รอให้ผู้ปล่อยเช่าสร้างสัญญาเช่า</p>
+      </section>
+    <?php endif; ?>
+  </div>
 </div>
 
 <script>
   (function() {
-    'use strict';
-
-    const form = document.getElementById('contractForm');
-    if (!form) return;
-
-    // คำนวณวันสิ้นสุดสัญญาอัตโนมัติ
     const startDateInput = document.getElementById('start_date');
-    const periodSelect = document.getElementById('rental_period_months');
+    const endDateInput = document.getElementById('end_date');
+    if (!startDateInput || !endDateInput) return;
 
-    function updateEndDate() {
-      const startDate = startDateInput.value;
-      const months = parseInt(periodSelect.value, 10);
+    const updateEndDate = () => {
+      const startVal = startDateInput.value;
+      if (!startVal) return;
+      const start = new Date(startVal);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 12);
+      const iso = end.toISOString().slice(0, 10);
+      endDateInput.value = iso;
+    };
 
-      if (startDate && months) {
-        const start = new Date(startDate);
-        const end = new Date(start);
-        end.setMonth(end.getMonth() + months);
-
-        // แสดงวันสิ้นสุดให้ผู้ใช้เห็น (ถ้ามี element)
-        const endDateDisplay = document.getElementById('end_date_display');
-        if (endDateDisplay) {
-          endDateDisplay.textContent = end.toLocaleDateString('th-TH');
-        }
-      }
-    }
-
-    if (startDateInput && periodSelect) {
-      startDateInput.addEventListener('change', updateEndDate);
-      periodSelect.addEventListener('change', updateEndDate);
-    }
-
-    form.addEventListener('submit', async function(e) {
-      e.preventDefault();
-
-      const agreeCheckbox = document.getElementById('agree');
-      if (!agreeCheckbox || !agreeCheckbox.checked) {
-        alert('กรุณายอมรับเงื่อนไขก่อนดำเนินการ');
-        return;
-      }
-
-      const submitBtn = form.querySelector('button[type="submit"]');
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'กำลังสร้างสัญญา...';
-      }
-
-      try {
-        const formData = new FormData(form);
-        const res = await fetch(window.location.href, {
-          method: 'POST',
-          body: formData
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          alert('สร้างสัญญาเรียบร้อยแล้ว\nเลขที่สัญญา: ' + (data.contract_number || ''));
-          window.location.href = '?page=history';
-        } else {
-          alert('⚠️ ' + (data.message || 'เกิดข้อผิดพลาด'));
-          if (submitBtn) {
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'สร้างสัญญา';
-          }
-        }
-      } catch (err) {
-        console.error('Form submission error:', err);
-        alert('เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่อีกครั้ง');
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'สร้างสัญญา';
-        }
-      }
-    });
+    startDateInput.addEventListener('change', updateEndDate);
   })();
 </script>
