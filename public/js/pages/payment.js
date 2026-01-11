@@ -166,6 +166,7 @@
       formData.append("update_payment", "1");
       formData.append("flow", FLOW);
       formData.append("slip_file", file);
+      formData.append("_csrf", String(data.csrf || ""));
 
       if (FLOW === "deposit") {
         if (!AREA_ID || !BOOKING_DATE) {
@@ -185,6 +186,9 @@
       const res = await fetch(window.location.href, {
         method: "POST",
         body: formData,
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+        },
       });
 
       const text = await res.text();

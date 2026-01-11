@@ -26,17 +26,21 @@
   background: var(--surface-muted);
   color: var(--text-primary);
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
   font-weight: 500;
   margin-bottom: 1.5rem;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   border: 1px solid var(--divider-color);
 }
 
 .btn-back:hover {
   background: var(--border-light);
   transform: translateX(-2px);
+}
+
+.btn-back:active {
+  transform: translateX(-1px);
 }
 
 .btn-back svg {
@@ -61,7 +65,7 @@
 /* Alert */
 .alert {
   padding: 1rem 1.25rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   margin-bottom: 1.5rem;
 }
 
@@ -88,9 +92,9 @@
 .property-form {
   background: var(--bg-white);
   border: 1px solid var(--divider-color);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 2rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-lg);
 }
 
 .form-section {

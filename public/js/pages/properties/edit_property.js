@@ -1,3 +1,9 @@
+// public/js/edit_property.js  (FULL FIXED)
+// FIXES
+// - ลบรูปผ่าน ?page=delete_property_image อย่างเดียว (กันยิงซ้ำ)
+// - ส่ง area_id + _csrf ทุกครั้ง
+// - ถ้า server ตอบ 200 แต่ payload ไม่ใช่ JSON -> ยังถือว่า fail (เพราะ endpoint JSON only)
+
 (function () {
   "use strict";
 
@@ -10,6 +16,7 @@
   var fileInput = document.getElementById("images");
   var previewGrid = document.getElementById("imagePreview");
   var existingWrapper = document.getElementById("existingImages");
+  var deletingMap = Object.create(null); // กันยิงลบซ้ำ
 
   var selectedFiles = [];
 
@@ -125,49 +132,73 @@
     fileInput.addEventListener("change", handleFileChange);
   }
 
+  function getCsrfToken() {
+    var csrfEl = document.querySelector('input[name="_csrf"]');
+    return csrfEl ? csrfEl.value : "";
+  }
+
   async function removeExisting(imageId, buttonEl) {
     if (!imageId) return;
+    if (!areaId) {
+      alert("ไม่พบ area_id");
+      return;
+    }
+    if (deletingMap[imageId]) return; // กันลบซ้ำซ้อน
     if (!confirm("คุณต้องการลบรูปภาพนี้ใช่หรือไม่?")) return;
 
-    // กันกดซ้ำ
     var prevDisabled = false;
     if (buttonEl) {
       prevDisabled = buttonEl.disabled;
       buttonEl.disabled = true;
     }
+    deletingMap[imageId] = true;
 
     try {
       var formData = new FormData();
       formData.append("action", "delete_image");
       formData.append("image_id", String(imageId));
       formData.append("area_id", String(areaId));
+      formData.append("_csrf", getCsrfToken());
 
       var res = await fetch("?page=delete_property_image", {
         method: "POST",
         body: formData,
         credentials: "same-origin",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          Accept: "application/json",
+        },
       });
 
-      var payload = null;
       var text = await res.text();
+      var payload = null;
       try {
         payload = text ? JSON.parse(text) : null;
       } catch (_) {
         payload = null;
       }
 
-      // ถือว่าสำเร็จถ้า HTTP 2xx แม้ payload ว่าง (ลด false error เมื่อฝั่งเซิร์ฟเวอร์ตอบ empty body)
-      var ok = res.ok && (!payload || payload.success === true);
-      if (!ok) {
-        var serverMsg = payload && payload.message ? payload.message : null;
-        throw new Error(serverMsg || "ลบรูปภาพไม่สำเร็จ");
+      console.log("Delete response:", {
+        status: res.status,
+        ok: res.ok,
+        body: text,
+        payload: payload,
+      });
+
+      if (!res.ok) {
+        var serverMsg =
+          payload && payload.message ? payload.message : "HTTP " + res.status;
+        throw new Error(serverMsg);
+      }
+
+      if (!payload || payload.success !== true) {
+        throw new Error(
+          payload && payload.message ? payload.message : "ลบรูปภาพไม่สำเร็จ"
+        );
       }
 
       var item = buttonEl ? buttonEl.closest(".existing-image-item") : null;
-      if (item && item.parentNode) {
-        item.parentNode.removeChild(item);
-      }
-      alert(payload && payload.message ? payload.message : "ลบรูปภาพสำเร็จ");
+      if (item && item.parentNode) item.parentNode.removeChild(item);
     } catch (err) {
       console.error("Delete error:", err);
       alert(
@@ -175,6 +206,7 @@
           (err && err.message ? err.message : "เกิดข้อผิดพลาด")
       );
     } finally {
+      deletingMap[imageId] = false;
       if (buttonEl) buttonEl.disabled = prevDisabled;
     }
   }
@@ -190,16 +222,7 @@
     });
   }
 
-  function initLazyLoad() {
-    var imgs = document.querySelectorAll("img[data-src]");
-    imgs.forEach(function (img) {
-      img.src = img.getAttribute("data-src");
-      img.removeAttribute("data-src");
-    });
-  }
-
   function init() {
-    initLazyLoad();
     bindProvinceCascade();
     bindFileInput();
     bindExistingDeletes();

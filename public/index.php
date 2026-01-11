@@ -2,28 +2,39 @@
 
 declare(strict_types=1);
 
-// ป้องกันการดักจับ error ที่ไม่คาดคิด
 require_once __DIR__ . '/../app/includes/crash_shield.php';
 
-// โหลด bootstrap ของโปรเจกต์
 $ctx = require __DIR__ . '/../app/bootstrap/bootstrap.php';
 
-// แตกตัวแปรจาก ctx
-$page = (string)$ctx['page'];
-$route = (array)$ctx['route'];
-$viewFile = (string)$ctx['viewFile'];
-$pageCss = (array)$ctx['pageCss'];
-$pageJs = (array)$ctx['pageJs'];
-$title = (string)$ctx['title'];
+$page     = (string)($ctx['page'] ?? 'home');
+$route    = (array)($ctx['route'] ?? []);
+$viewFile = (string)($ctx['viewFile'] ?? '');
+$pageCss  = (array)($ctx['pageCss'] ?? []);
+$pageJs   = (array)($ctx['pageJs'] ?? []);
+$title    = (string)($ctx['title'] ?? 'Untitled');
 
-// กำหนด CSS พื้นฐาน
+/**
+ * Normalize + dedupe asset lists
+ */
+$normalizeAssets = static function (array $assets): array {
+  $assets = array_map('strval', $assets);
+  $assets = array_map('trim', $assets);
+  $assets = array_values(array_filter($assets, static fn($v) => $v !== ''));
+
+  // ป้องกันแอบยัด scheme แปลก ๆ (เช่น javascript:, data:)
+  $assets = array_values(array_filter($assets, static function (string $v): bool {
+    return str_starts_with($v, '/') || str_starts_with($v, 'http://') || str_starts_with($v, 'https://');
+  }));
+
+  return array_values(array_unique($assets));
+};
+
 $baseCss = [
   '/css/variables.css',
   '/css/base.css',
   '/css/navbar.css',
 ];
 
-// กำหนด JS พื้นฐาน
 $baseJs = [
   '/js/app.core.js',
   '/js/app.flash.js',
@@ -31,14 +42,29 @@ $baseJs = [
   '/js/app.js',
 ];
 
-$pageCss = array_values(array_unique($pageCss));
-$pageJs = array_values(array_unique($pageJs));
+$pageCss = $normalizeAssets($pageCss);
+$pageJs  = $normalizeAssets($pageJs);
 
-$cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
+$renderCssLinks = static function (array $hrefs): void {
+  foreach ($hrefs as $href) {
+    echo '<link rel="stylesheet" href="' . e($href) . '">' . PHP_EOL;
+  }
+};
+
+$renderDeferredScripts = static function (array $srcs, string $nonce = ''): void {
+  // ตอนนี้ project ใช้ nonce เฉพาะ inline script
+  // ถ้าต้องการใส่ nonce ให้ external script ด้วย: เพิ่ม nonce attr ที่ tag ได้เลย
+  foreach ($srcs as $src) {
+    echo '<script src="' . e($src) . '" defer></script>' . PHP_EOL;
+  }
+};
+
+$cspNonce = function_exists('csp_nonce') ? (string)csp_nonce() : '';
+$lang = defined('APP_LOCALE') ? (APP_LOCALE === 'th' ? 'th' : (string)APP_LOCALE) : 'th';
 
 ?>
 <!DOCTYPE html>
-<html lang="th">
+<html lang="<?= e($lang); ?>">
 
 <head>
   <meta charset="UTF-8">
@@ -49,37 +75,29 @@ $cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- โหลด CSS พื้นฐาน -->
-  <?php foreach ($baseCss as $href): ?>
-    <link rel="stylesheet" href="<?= e($href); ?>">
-  <?php endforeach; ?>
+  <!-- Base CSS -->
+  <?php $renderCssLinks($baseCss); ?>
 
-  <!-- โหลด CSS ของหน้านั้นๆ -->
-  <?php foreach ($pageCss as $href): ?>
-    <link rel="stylesheet" href="<?= e($href); ?>">
-  <?php endforeach; ?>
+  <!-- Page CSS -->
+  <?php $renderCssLinks($pageCss); ?>
 
+  <!-- Inline bootstrap data -->
   <script nonce="<?= e($cspNonce); ?>">
     window.APP = {
       page: <?= json_encode($page, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
     };
   </script>
 
-  <!-- โหลด JS พื้นฐาน (ต้องพร้อมก่อนสคริปต์ของหน้า) -->
-  <?php foreach ($baseJs as $src): ?>
-    <script src="<?= e($src); ?>" defer></script>
-  <?php endforeach; ?>
+  <!-- Base JS -->
+  <?php $renderDeferredScripts($baseJs, $cspNonce); ?>
 
-  <!-- โหลด JS ของหน้านั้นๆ (defer เพื่อใช้ util จาก base JS) -->
-  <?php foreach ($pageJs as $src): ?>
-    <script src="<?= e($src); ?>" defer></script>
-  <?php endforeach; ?>
-
+  <!-- Page JS -->
+  <?php $renderDeferredScripts($pageJs, $cspNonce); ?>
 </head>
 
 <body>
   <?php
-  // แสดง navbar
+  // Navbar (กันตาย ไม่ให้ทั้งหน้าพังเพราะ component เดียว)
   try {
     include APP_PATH . '/components/navbar.php';
   } catch (Throwable $e) {
@@ -88,10 +106,8 @@ $cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
   ?>
 
   <main class="page-root">
-    <!-- แสดง flash popup -->
     <?php render_flash_popup(); ?>
 
-    <!-- แสดง content ของหน้านั้นๆ -->
     <?php if (is_file($viewFile)): ?>
       <?php
       try {
@@ -101,8 +117,6 @@ $cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
         app_log('view_error', ['view_file' => $viewFile, 'error' => $e->getMessage()]);
         http_response_code(500);
       ?>
-
-        <!-- แสดง error ของหน้านั้นๆ -->
         <section class="error-section container" role="alert" aria-live="polite">
           <h1 class="error-title">เกิดข้อผิดพลาด</h1>
           <p class="error-text">ไม่สามารถโหลดหน้านี้ได้ กรุณาลองใหม่อีกครั้ง</p>
@@ -111,9 +125,7 @@ $cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
           </div>
         </section>
       <?php } ?>
-
     <?php else: ?>
-      <!-- แสดง error ของหน้านั้นๆ -->
       <?php http_response_code(404); ?>
       <section class="error-section container" role="alert" aria-live="polite">
         <h1 class="error-title">ไม่พบหน้าที่ต้องการ (404)</h1>
@@ -129,7 +141,6 @@ $cspNonce = function_exists('csp_nonce') ? csp_nonce() : '';
 </html>
 
 <?php
-// ล้าง output buffer
 if (ob_get_level() > 0) {
   @ob_end_flush();
 }

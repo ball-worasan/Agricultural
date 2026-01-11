@@ -2,11 +2,18 @@
   width: 100%;
   background: var(--bg-white);
   border-bottom: 1px solid var(--divider-color);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-xs);
   position: sticky;
   top: 0;
-  z-index: 100;
-  transition: box-shadow 0.2s ease;
+  z-index: var(--z-sticky);
+  transition: box-shadow var(--transition-base);
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border, #e5e7eb);
+  opacity: 0.8;
 }
 
 .nav-inner {
@@ -49,7 +56,7 @@
   text-decoration: none;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition-base);
 }
 
 .brand:hover {
@@ -61,11 +68,11 @@
   max-width: 100%;
   padding: 0.625rem 1rem;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 0.9375rem;
   background: var(--surface-muted);
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 .nav-search::placeholder {
@@ -80,8 +87,12 @@
 .nav-search:focus {
   border-color: var(--primary-color);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: var(--focus-ring);
   background: var(--bg-white);
+}
+
+.nav-search:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 
 .nav-account {
@@ -105,14 +116,14 @@
   cursor: pointer;
   white-space: nowrap;
 
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 .account-btn::after {
   content: "▾";
   font-size: 0.75rem;
   margin-left: 0.125rem;
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-base);
 }
 
 .account-btn[aria-expanded="true"]::after {
@@ -125,9 +136,14 @@
   color: var(--primary-color);
 }
 
+.account-btn:active {
+  background: var(--surface-active);
+  transform: scale(0.98);
+}
+
 .account-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+  box-shadow: var(--focus-ring);
 }
 
 .account-menu {
@@ -138,14 +154,14 @@
 
   background: var(--bg-white);
   border: 1px solid var(--divider-color);
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
 
   padding: 0.5rem;
   display: none;
   flex-direction: column;
   gap: 0.125rem;
-  z-index: 1000;
+  z-index: var(--z-dropdown);
 }
 
 .account-menu:not([hidden]) {
@@ -168,16 +184,21 @@
   text-decoration: none;
   font-size: 0.9rem;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   text-align: left;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .account-menu .menu-item:hover {
   background: var(--surface-muted);
   color: var(--text-primary);
+}
+
+.account-menu .menu-item:active {
+  background: var(--surface-active);
+  transform: scale(0.98);
 }
 
 .account-menu .menu-item.highlight {

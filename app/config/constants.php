@@ -3,44 +3,40 @@
 declare(strict_types=1);
 
 /**
- * Role Constants
- * ตัวเลขที่ใช้แทนบทบาทของผู้ใช้ในระบบ
+ * Application constants (immutable)
+ * - ห้ามใส่ function ในไฟล์นี้
+ * - ค่าที่เปลี่ยนตาม env ควรไปอยู่ bootstrap/Config loader ไม่ใช่ const
  */
 
-// Role IDs
-const ROLE_ADMIN = 1;      // ผู้ดูแลระบบ
-const ROLE_MEMBER = 2;     // สมาชิกทั่วไป (ผู้ให้เช่า/ผู้เช่า)
-const ROLE_GUEST = 3;      // ผู้ใช้ทั่วไป (ยังไม่สมัครสมาชิก)
+// Locale default (fallback only; actual locale should come from env/config)
+const DEFAULT_APP_LOCALE = 'th';
 
-/**
- * Map role ID to display name
- */
-const ROLE_NAMES = [
-  ROLE_ADMIN  => 'admin',
-  ROLE_MEMBER => 'member',
-  ROLE_GUEST  => 'guest',
+// Roles (IDs are persisted values)
+const ROLE_ADMIN  = 1;
+const ROLE_MEMBER = 2;
+const ROLE_GUEST  = 3;
+
+// System role keys (internal)
+const ROLE_KEY_ADMIN  = 'admin';
+const ROLE_KEY_MEMBER = 'member';
+const ROLE_KEY_GUEST  = 'guest';
+
+// Maps
+const ROLE_ID_TO_KEY = [
+  ROLE_ADMIN  => ROLE_KEY_ADMIN,
+  ROLE_MEMBER => ROLE_KEY_MEMBER,
+  ROLE_GUEST  => ROLE_KEY_GUEST,
 ];
 
-/**
- * Map role name to role ID
- */
-const ROLE_IDS = [
-  'admin'  => ROLE_ADMIN,
-  'member' => ROLE_MEMBER,
-  'guest'  => ROLE_GUEST,
+const ROLE_KEY_TO_ID = [
+  ROLE_KEY_ADMIN  => ROLE_ADMIN,
+  ROLE_KEY_MEMBER => ROLE_MEMBER,
+  ROLE_KEY_GUEST  => ROLE_GUEST,
 ];
 
-if (!function_exists('role_name')) {
-  function role_name(int $id): string
-  {
-    return ROLE_NAMES[$id] ?? ROLE_NAMES[ROLE_GUEST];
-  }
-}
-
-if (!function_exists('role_id')) {
-  function role_id(string $name): int
-  {
-    $normalized = strtolower(trim($name));
-    return ROLE_IDS[$normalized] ?? ROLE_GUEST;
-  }
-}
+// Optional: UI labels (ไทย) — ใช้แสดงผลในหน้าเว็บ
+const ROLE_ID_TO_LABEL_TH = [
+  ROLE_ADMIN  => 'ผู้ดูแลระบบ',
+  ROLE_MEMBER => 'สมาชิก',
+  ROLE_GUEST  => 'ผู้เยี่ยมชม',
+];

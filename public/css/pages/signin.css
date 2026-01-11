@@ -22,9 +22,9 @@
   max-width: 900px;
   background: var(--bg-white);
   border: 1px solid var(--divider-color);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-lg);
   display: grid;
   grid-template-columns: 1fr 1fr;
 }
@@ -139,10 +139,10 @@
   width: 100%;
   padding: 0.875rem 1rem;
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 0.9375rem;
   background: var(--surface-muted);
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 .signin-form .form-group input:hover {
@@ -153,8 +153,12 @@
 .signin-form .form-group input:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: var(--focus-ring);
   background: var(--bg-white);
+}
+
+.signin-form .form-group input:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 
 .signin-form .form-group input::placeholder {
@@ -183,11 +187,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease;
+  transition: color var(--transition-base);
 }
 
 .toggle-password:hover {
   color: var(--primary-color);
+}
+
+.toggle-password:active {
+  transform: translateY(-50%) scale(0.95);
 }
 
 .toggle-password:focus {
@@ -206,26 +214,28 @@
   background: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   margin-top: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-signin:hover {
   background: var(--primary-light);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .btn-signin:active {
   transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-signin:disabled,

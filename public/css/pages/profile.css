@@ -51,10 +51,10 @@
 .profile-picture-section {
   background: var(--bg-white);
   border: 1px solid var(--divider-color);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 2rem 1.5rem;
   text-align: center;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-lg);
   position: sticky;
   top: 2rem;
 }
@@ -138,9 +138,9 @@
 .section-card {
   background: var(--bg-white);
   border: 1px solid var(--divider-color);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 2rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-lg);
 }
 
 .section-card h3 {
@@ -188,16 +188,28 @@
   width: 100%;
   padding: 0.875rem 1rem;
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-family: "Noto Sans Thai", sans-serif;
   font-size: 0.9375rem;
   background: var(--surface-muted);
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 .edit-input:hover {
   background: var(--bg-white);
   border-color: var(--primary-light);
+}
+
+.edit-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+  background: var(--bg-white);
+}
+
+.edit-input:focus-visible {
+  box-shadow: var(--focus-ring);
+}
 }
 
 .edit-input:focus {
@@ -483,5 +495,127 @@ textarea.edit-input {
 
   .profile-message {
     margin: 0 1rem 1.5rem;
+  }
+}
+
+/* =========================================================
+   Enhancements for JS states (loading/disabled) + a11y polish
+   Append to end of profile.css
+   ========================================================= */
+
+/* 1) Better focus ring (reuse token-ish feel) */
+.btn-edit:focus-visible,
+.btn-save:focus-visible,
+.btn-cancel:focus-visible,
+.btn-change-password:focus-visible,
+.toggle-password:focus-visible,
+.edit-input:focus-visible,
+.password-form .form-group input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.18);
+}
+
+/* 2) Submitting state (JS sets aria-busy + .is-loading + disabled) */
+.profile-edit-form[aria-busy="true"],
+.password-form[aria-busy="true"] {
+  position: relative;
+}
+
+.profile-edit-form[aria-busy="true"]::after,
+.password-form[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+/* disable feel (buttons) */
+.btn-edit:disabled,
+.btn-save:disabled,
+.btn-cancel:disabled,
+.btn-change-password:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* 3) Loading spinner on submit buttons when JS adds .is-loading */
+.btn-save.is-loading,
+.btn-change-password.is-loading,
+.btn-edit.is-loading {
+  position: relative;
+  padding-left: 2.25rem;
+}
+
+.btn-save.is-loading::before,
+.btn-change-password.is-loading::before,
+.btn-edit.is-loading::before {
+  content: "";
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-top-color: rgba(255, 255, 255, 1);
+  animation: profile-spin 0.8s linear infinite;
+}
+
+@keyframes profile-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+/* 4) Inputs disabled look (rare, but if you add later) */
+.edit-input:disabled,
+.password-form .form-group input:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+  background: var(--surface-muted);
+}
+
+/* 5) Softer hover shadows (less “ยิงแสง”)
+   - ลดความแรงของ box-shadow ให้ละมุนขึ้น */
+.btn-edit:hover,
+.btn-save:hover,
+.btn-change-password:hover {
+  box-shadow: 0 6px 14px rgba(30, 64, 175, 0.22);
+}
+
+/* 6) Optional: small divider utility (ถ้าคุณใช้ใน profile.php หรือที่อื่น) */
+.menu-divider,
+.profile-divider {
+  height: 1px;
+  width: 100%;
+  background: var(--divider-color);
+  margin: 1rem 0;
+  border-radius: 999px;
+}
+
+/* 7) Reduce motion for people who asked OS to chill */
+@media (prefers-reduced-motion: reduce) {
+  .profile-picture,
+  .picture-overlay,
+  .edit-input,
+  .password-form .form-group input,
+  .btn-edit,
+  .btn-save,
+  .btn-cancel,
+  .btn-change-password,
+  .toggle-password {
+    transition: none !important;
+  }
+
+  .btn-save.is-loading::before,
+  .btn-change-password.is-loading::before,
+  .btn-edit.is-loading::before {
+    animation: none !important;
   }
 }

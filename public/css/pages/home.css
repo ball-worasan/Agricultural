@@ -18,7 +18,7 @@
 .home-container .filter-section {
   background: var(--bg-white);
   padding: 1rem 1.25rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--divider-color);
   margin-bottom: 1.5rem;
 
@@ -55,11 +55,11 @@
 .home-container .filter-group select {
   padding: 0.625rem 0.875rem;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
   background: var(--surface-muted);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 .home-container .filter-group select:focus {
@@ -136,13 +136,13 @@
 /* CARD */
 .home-container .item-card {
   background: var(--bg-white);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--divider-color);
   display: flex;
   overflow: hidden;
   position: relative;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 
@@ -153,8 +153,13 @@
 
 .home-container .item-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
   border-color: var(--primary-light);
+}
+
+.home-container .item-card:active {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .home-container .item-card.booked {
@@ -181,12 +186,12 @@
 
 .home-container .badge {
   padding: 0.375rem 0.75rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.025em;
   backdrop-filter: blur(8px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .home-container .badge-owner {
@@ -346,7 +351,7 @@
   text-decoration: none;
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
-  transition: all var(--transition-fast);
+  transition: all var(--transition-base);
   cursor: pointer;
 }
 
@@ -356,6 +361,11 @@
   border-color: var(--primary-color);
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
+}
+
+.home-container .page-link:active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 .home-container .page-info {

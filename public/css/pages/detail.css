@@ -55,9 +55,7 @@
   font-weight: var(--font-semibold);
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
-  transition: background-color var(--transition-fast),
-    color var(--transition-fast), border-color var(--transition-fast),
-    transform var(--transition-fast), box-shadow var(--transition-fast);
+  transition: all var(--transition-base);
 }
 
 .back-button:hover {
@@ -66,6 +64,11 @@
   border-color: var(--primary-color);
   transform: translateX(-2px);
   box-shadow: var(--shadow-md);
+}
+
+.back-button:active {
+  transform: translateX(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .back-button.minimal {

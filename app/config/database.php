@@ -2,13 +2,10 @@
 
 declare(strict_types=1);
 
-// กำหนดคลาส Database
 final class Database
 {
-  /** @var ?PDO */
   private static ?PDO $conn = null;
 
-  /** @var bool */
   private static bool $envLoaded = false;
 
   /** @var array<string,string> */
@@ -18,6 +15,7 @@ final class Database
   private static ?array $config = null;
 
   private const SUPPORTED_DRIVERS = ['mysql'];
+
   private const ENV_KEYS = [
     'APP_ENV',
     'APP_DEBUG',
@@ -28,23 +26,23 @@ final class Database
     'DB_USERNAME',
     'DB_PASSWORD',
     'DB_CHARSET',
+    'DB_COLLATION',
     'DB_PERSISTENT',
-    'APP_TIMEZONE',
   ];
 
   private static function envPath(): string
   {
-    // กำหนดค่า path ของไฟล์ .env
     return dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . '.env';
   }
 
-
-  // โหลดไฟล์ .env ครั้งเดียวแล้ว cache ไว้ใน static::$env
+  // ---------------------------------------------------------------------------
+  // ENV
+  // ---------------------------------------------------------------------------
   private static function loadEnv(): void
   {
     if (self::$envLoaded) return;
 
-    // 1) seed จาก environment ของระบบก่อน (ดีที่สุด)
+    // 1) OS env wins
     foreach (self::ENV_KEYS as $k) {
       $v = getenv($k);
       if ($v !== false && $v !== '') self::$env[$k] = (string)$v;
@@ -64,9 +62,9 @@ final class Database
 
     foreach ($lines as $raw) {
       $line = trim((string)$raw);
-      if ($line === '' || $line[0] === '#') continue;
+      if ($line === '' || str_starts_with($line, '#')) continue;
 
-      // รองรับ "export KEY=VAL"
+      // allow: export KEY=VAL
       if (str_starts_with($line, 'export ')) {
         $line = trim(substr($line, 7));
       }
@@ -76,28 +74,15 @@ final class Database
 
       $key = trim(substr($line, 0, $pos));
       $val = trim(substr($line, $pos + 1));
-
       if ($key === '') continue;
 
-      // ตัด inline comment แบบ: KEY=val #comment (ถ้าไม่ได้อยู่ใน quote)
-      if ($val !== '' && ($val[0] !== '"' && $val[0] !== "'")) {
-        $hashPos = strpos($val, ' #');
-        if ($hashPos !== false) $val = trim(substr($val, 0, $hashPos));
-        $hashPos = strpos($val, "\t#");
-        if ($hashPos !== false) $val = trim(substr($val, 0, $hashPos));
-      }
+      // strip inline comments when not quoted: KEY=val #comment
+      $val = self::stripInlineComment($val);
 
-      // strip quotes
-      $len = strlen($val);
-      if ($len >= 2) {
-        $f = $val[0];
-        $l = $val[$len - 1];
-        if (($f === '"' && $l === '"') || ($f === "'" && $l === "'")) {
-          $val = substr($val, 1, -1);
-        }
-      }
+      // strip surrounding quotes
+      $val = self::stripQuotes($val);
 
-      // อย่า override env ของระบบ ถ้ามีอยู่แล้ว
+      // do not override OS env
       if (!array_key_exists($key, self::$env)) {
         self::$env[$key] = $val;
       }
@@ -106,7 +91,42 @@ final class Database
     self::$envLoaded = true;
   }
 
-  // ดึงค่า env พร้อม fallback ไปที่ getenv() และ default
+  private static function stripInlineComment(string $val): string
+  {
+    if ($val === '') return $val;
+
+    $first = $val[0];
+    if ($first === '"' || $first === "'") {
+      // quoted: keep as-is (do not strip # inside quotes)
+      return $val;
+    }
+
+    // split at first unescaped # preceded by whitespace
+    // simplest safe approach: find " #" or "\t#"
+    foreach ([' #', "\t#"] as $needle) {
+      $p = strpos($val, $needle);
+      if ($p !== false) {
+        $val = trim(substr($val, 0, $p));
+        break;
+      }
+    }
+    return $val;
+  }
+
+  private static function stripQuotes(string $val): string
+  {
+    $len = strlen($val);
+    if ($len < 2) return $val;
+
+    $f = $val[0];
+    $l = $val[$len - 1];
+
+    if (($f === '"' && $l === '"') || ($f === "'" && $l === "'")) {
+      return substr($val, 1, -1);
+    }
+    return $val;
+  }
+
   public static function env(string $key, ?string $default = null): ?string
   {
     if (!self::$envLoaded) self::loadEnv();
@@ -122,21 +142,19 @@ final class Database
     return $default;
   }
 
-  // ดึง env แบบ boolean
   private static function envBool(string $key, bool $default = false): bool
   {
     $val = self::env($key);
-    if ($val === null) {
-      return $default;
-    }
+    if ($val === null) return $default;
 
-    $normalized = filter_var($val, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-    return $normalized ?? $default;
+    $b = filter_var($val, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    return $b ?? $default;
   }
 
+  // ---------------------------------------------------------------------------
+  // CONFIG
+  // ---------------------------------------------------------------------------
   /**
-   * ดึง config ฐานข้อมูลแบบ cache ไว้ครั้งเดียว
-   *
    * @return array{
    *  driver:string,
    *  host:string,
@@ -145,22 +163,22 @@ final class Database
    *  user:string,
    *  pass:string,
    *  charset:string,
+   *  collation:string,
    *  persistent:bool
    * }
    */
   public static function config(): array
   {
-    if (self::$config !== null) {
-      return self::$config;
-    }
+    if (self::$config !== null) return self::$config;
 
-    $driver    = self::env('DB_CONNECTION', 'mysql') ?? 'mysql';
-    $host      = self::env('DB_HOST', '127.0.0.1') ?? '127.0.0.1';
-    $port      = self::env('DB_PORT', '3306') ?? '3306';
-    $db        = self::env('DB_DATABASE', '') ?? '';
-    $user      = self::env('DB_USERNAME', '') ?? '';
-    $pass      = self::env('DB_PASSWORD', '') ?? '';
-    $charset   = self::env('DB_CHARSET', 'utf8mb4') ?? 'utf8mb4';
+    $driver     = self::env('DB_CONNECTION', 'mysql') ?? 'mysql';
+    $host       = self::env('DB_HOST', '127.0.0.1') ?? '127.0.0.1';
+    $port       = self::env('DB_PORT', '3306') ?? '3306';
+    $db         = self::env('DB_DATABASE', '') ?? '';
+    $user       = self::env('DB_USERNAME', '') ?? '';
+    $pass       = self::env('DB_PASSWORD', '') ?? '';
+    $charset    = self::env('DB_CHARSET', 'utf8mb4') ?? 'utf8mb4';
+    $collation  = self::env('DB_COLLATION', 'utf8mb4_unicode_ci') ?? 'utf8mb4_unicode_ci';
     $persistent = self::envBool('DB_PERSISTENT', false);
 
     if (!in_array($driver, self::SUPPORTED_DRIVERS, true)) {
@@ -179,6 +197,7 @@ final class Database
       'user'       => $user,
       'pass'       => $pass,
       'charset'    => $charset,
+      'collation'  => $collation,
       'persistent' => $persistent,
     ];
 
@@ -197,14 +216,12 @@ final class Database
     );
   }
 
-  /**
-   * สร้าง / ดึง PDO connection (singleton)
-   */
+  // ---------------------------------------------------------------------------
+  // CONNECTION
+  // ---------------------------------------------------------------------------
   public static function connection(): PDO
   {
-    if (self::$conn instanceof PDO) {
-      return self::$conn;
-    }
+    if (self::$conn instanceof PDO) return self::$conn;
 
     $cfg = self::config();
     $dsn = self::buildDsn($cfg);
@@ -215,101 +232,87 @@ final class Database
       PDO::ATTR_EMULATE_PREPARES   => false,
     ];
 
-    if ($cfg['persistent'] === true) {
+    if ($cfg['persistent']) {
       $options[PDO::ATTR_PERSISTENT] = true;
+    }
+
+    // Ensure collation at connection time (mysql)
+    if ($cfg['driver'] === 'mysql') {
+      $init = "SET NAMES {$cfg['charset']} COLLATE {$cfg['collation']}";
+      $options[PDO::MYSQL_ATTR_INIT_COMMAND] = $init;
     }
 
     try {
       self::$conn = new PDO($dsn, $cfg['user'], $cfg['pass'], $options);
     } catch (PDOException $e) {
-      $safeMessage = 'Database connection failed.';
-      $debugEnv = self::env('APP_DEBUG', 'false') ?? 'false';
-      $isDebug = in_array(strtolower($debugEnv), ['1', 'true', 'yes', 'on'], true);
+      // Avoid leaking DSN/user/pass
+      $msg = 'Database connection failed.';
+      $debug =
+        (function_exists('app_debug_enabled') && app_debug_enabled())
+        || self::envBool('APP_DEBUG', false);
 
-      if ($isDebug) {
-        $safeMessage .= ' ' . $e->getMessage();
+      if ($debug) {
+        $msg .= ' ' . $e->getMessage();
       }
 
-      throw new RuntimeException($safeMessage, (int) $e->getCode(), $e);
+      throw new RuntimeException($msg, (int)$e->getCode(), $e);
     }
 
     return self::$conn;
   }
 
-  /**
-   * ปิด connection (ให้ GC เก็บ)
-   */
   public static function close(): void
   {
     self::$conn = null;
   }
 
-  /**
-   * Query ทั่วไปด้วย prepared statement
-   *
-   * @param array<int|string,mixed> $params
-   */
+  // ---------------------------------------------------------------------------
+  // QUERY HELPERS
+  // ---------------------------------------------------------------------------
+  /** @param array<int|string,mixed> $params */
   public static function query(string $sql, array $params = []): PDOStatement
   {
     $pdo = self::connection();
     $stmt = $pdo->prepare($sql);
-
     if ($stmt === false) {
       throw new RuntimeException('Failed to prepare SQL statement.');
     }
 
-    $success = $stmt->execute($params);
-    if ($success === false) {
+    if ($stmt->execute($params) === false) {
       throw new RuntimeException('Failed to execute SQL statement.');
     }
 
     return $stmt;
   }
 
-  /**
-   * ดึงหลายแถว
-   *
-   * @param array<int|string,mixed> $params
-   * @return array<int,array<string,mixed>>
-   */
+  /** @param array<int|string,mixed> $params @return array<int,array<string,mixed>> */
   public static function fetchAll(string $sql, array $params = []): array
   {
     return self::query($sql, $params)->fetchAll();
   }
 
-  /**
-   * ดึงแถวเดียว
-   *
-   * @param array<int|string,mixed> $params
-   * @return array<string,mixed>|null
-   */
+  /** @param array<int|string,mixed> $params @return array<string,mixed>|null */
   public static function fetchOne(string $sql, array $params = []): ?array
   {
     $row = self::query($sql, $params)->fetch();
     return $row === false ? null : $row;
   }
 
-  /**
-   * สำหรับ INSERT/UPDATE/DELETE
-   *
-   * @param array<int|string,mixed> $params
-   */
+  /** @param array<int|string,mixed> $params */
   public static function execute(string $sql, array $params = []): int
   {
     return self::query($sql, $params)->rowCount();
   }
 
-  /**
-   * helper: last insert id
-   */
   public static function lastInsertId(): string
   {
     return self::connection()->lastInsertId();
   }
 
+  // ---------------------------------------------------------------------------
+  // TRANSACTION (supports nested via savepoints)
+  // ---------------------------------------------------------------------------
   /**
-   * รัน logic ภายใน transaction เดียว
-   *
    * @template T
    * @param callable(PDO):T $fn
    * @return T
@@ -317,9 +320,10 @@ final class Database
   public static function transaction(callable $fn)
   {
     $pdo = self::connection();
-
     $inTx = $pdo->inTransaction();
-    $sp = 'sp_' . bin2hex(random_bytes(3));
+
+    // savepoint name must be alnum/underscore
+    $sp = 'sp_' . bin2hex(random_bytes(4));
 
     try {
       if (!$inTx) {
@@ -329,28 +333,29 @@ final class Database
         return $result;
       }
 
-      // nested -> savepoint
       $pdo->exec("SAVEPOINT {$sp}");
       $result = $fn($pdo);
       $pdo->exec("RELEASE SAVEPOINT {$sp}");
       return $result;
     } catch (Throwable $e) {
-      if (!$inTx && $pdo->inTransaction()) {
-        $pdo->rollBack();
-      } elseif ($inTx) {
-        // rollback แค่ช่วง nested
-        try {
+      try {
+        if (!$inTx && $pdo->inTransaction()) {
+          $pdo->rollBack();
+        } elseif ($inTx) {
           $pdo->exec("ROLLBACK TO SAVEPOINT {$sp}");
-        } catch (Throwable) {
+          $pdo->exec("RELEASE SAVEPOINT {$sp}");
         }
+      } catch (Throwable) {
+        // swallow rollback failures
       }
       throw $e;
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // HEALTH
+  // ---------------------------------------------------------------------------
   /**
-   * ตรวจสุขภาพฐานข้อมูล: ใช้กับ health check endpoint ได้
-   *
    * @return array{
    *  ok:bool,
    *  driver:string,
@@ -392,15 +397,14 @@ final class Database
 
     try {
       $pdo = self::connection();
+      $status['server_version'] = (string)$pdo->getAttribute(PDO::ATTR_SERVER_VERSION);
 
-      $status['server_version'] = (string) $pdo->getAttribute(PDO::ATTR_SERVER_VERSION);
-
-      $start = microtime(true);
+      $t0 = microtime(true);
       $ping = $pdo->query('SELECT 1')->fetchColumn();
-      $end = microtime(true);
+      $t1 = microtime(true);
 
-      $status['ping'] = ($ping == 1);
-      $status['ping_time_ms'] = ($end - $start) * 1000.0;
+      $status['ping'] = ((string)$ping === '1');
+      $status['ping_time_ms'] = ($t1 - $t0) * 1000.0;
       $status['ok'] = $status['ping'] === true;
     } catch (Throwable $e) {
       $status['error'] = $e->getMessage();

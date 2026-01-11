@@ -2,82 +2,68 @@
 
 declare(strict_types=1);
 
-// กำหนดค่า current page
+// current page
 $currentPage = (string)($page ?? ($_GET['page'] ?? 'home'));
 $onHome = ($currentPage === 'home');
-$activePage = $currentPage;
 
-// ตรวจสอบว่า user เป็น authenticated หรือไม่
+// auth state
 $user = current_user();
-$userId = is_array($user) ? (int)($user['user_id'] ?? $user['id'] ?? 0) : 0;
+$userId = 0;
+
+if (is_array($user)) {
+  // support multiple keys
+  $userId = (int)($user['id'] ?? $user['user_id'] ?? 0);
+}
+
 $isAuthenticated = $userId > 0;
+$isAdmin = $isAuthenticated && function_exists('is_admin') ? (bool)is_admin() : false;
 
-// ตรวจสอบว่า user เป็น admin หรือไม่
-$isAdmin = ($isAuthenticated && function_exists('is_admin')) ? (bool)is_admin() : false;
-
-// กำหนดค่า display name
-$resolveName = static function (array $user): string {
+// display name
+$displayName = 'บัญชีของฉัน';
+if ($isAuthenticated && is_array($user)) {
   $fullName = trim((string)($user['full_name'] ?? ''));
-  if ($fullName !== '') {
-    return $fullName;
-  }
-
   $username = trim((string)($user['username'] ?? ''));
-  return $username !== '' ? $username : 'บัญชีของฉัน';
-};
+  $displayName = $fullName !== '' ? $fullName : ($username !== '' ? $username : 'บัญชีของฉัน');
+}
 
-$displayName = $isAuthenticated ? $resolveName($user) : 'บัญชีของฉัน';
-
-// กำหนดค่า instance ids
-$navInstanceId = 'nav-' . substr(md5($currentPage . '|' . ($userId ?: 'guest') . '|' . ($_SERVER['REMOTE_ADDR'] ?? '')), 0, 8);
+// stable-ish ids (ไม่ต้องใส่ IP)
+$seed = $currentPage . '|' . ($userId ?: 'guest');
+$navInstanceId = 'nav-' . substr(hash('sha256', $seed), 0, 10);
 $accountBtnId  = 'accountBtn-' . $navInstanceId;
 $accountMenuId = 'accountMenu-' . $navInstanceId;
 
-// กำหนดค่า menu items
-$authMenuItems = [];
-$guestMenuItems = [];
-
-if ($isAuthenticated) {
-  $authMenuItems = [
-    ['href' => '?page=home',          'label' => 'รายการพื้นที่เกษตรให้เช่า',    'page' => 'home',          'highlight' => false],
-  ];
-
-  // สำหรับ member ปกติ: เพิ่มเมนูส่วนตัวสำหรับการจัดการพื้นที่และประวัติ
-  if (!$isAdmin) {
-    $authMenuItems[] = ['href' => '?page=my_properties', 'label' => 'พื้นที่ปล่อยเช่าของฉัน',      'page' => 'my_properties', 'highlight' => false];
-    $authMenuItems[] = ['href' => '?page=history',       'label' => 'ประวัติการเช่าพื้นที่เกษตร', 'page' => 'history',       'highlight' => false];
-  }
-
-  // เพิ่มเมนูโปรไฟล์สำหรับทุกคน
-  $authMenuItems[] = ['href' => '?page=profile', 'label' => 'ข้อมูลสมาชิก', 'page' => 'profile', 'highlight' => false];
-
-  // สำหรับ admin: เพิ่มแดชบอร์ดแอดมิน
-  if ($isAdmin) {
-    $authMenuItems[] = [
-      'href' => '?page=admin_dashboard',
-      'label' => 'แดชบอร์ดผู้ดูแล',
-      'page' => 'admin_dashboard',
-      'highlight' => true,
-    ];
-  }
-} else {
-  $guestMenuItems = [
-    ['href' => '?page=signin', 'label' => 'เข้าสู่ระบบ',  'page' => 'signin'],
-    ['href' => '?page=signup', 'label' => 'สมัครสมาชิก', 'page' => 'signup'],
-  ];
-}
-
-$buildMenuClasses = static function (array $item) use ($activePage): string {
+$menuClass = static function (string $itemPage, bool $highlight, string $activePage): string {
   $classes = ['menu-item'];
-  if (!empty($item['highlight'])) {
-    $classes[] = 'highlight';
-  }
-  if (($item['page'] ?? '') === $activePage) {
-    $classes[] = 'is-active';
-  }
-
+  if ($highlight) $classes[] = 'highlight';
+  if ($itemPage === $activePage) $classes[] = 'is-active';
   return implode(' ', $classes);
 };
+
+// build menu lists
+$authMenu = [
+  ['href' => '?page=home', 'label' => 'รายการพื้นที่เกษตรให้เช่า', 'page' => 'home', 'highlight' => false],
+];
+
+if ($isAuthenticated) {
+  if (!$isAdmin) {
+    $authMenu[] = ['href' => '?page=my_properties', 'label' => 'พื้นที่ปล่อยเช่าของฉัน', 'page' => 'my_properties', 'highlight' => false];
+    $authMenu[] = ['href' => '?page=history', 'label' => 'ประวัติการเช่าพื้นที่เกษตร', 'page' => 'history', 'highlight' => false];
+  }
+
+  $authMenu[] = ['href' => '?page=profile', 'label' => 'ข้อมูลสมาชิก', 'page' => 'profile', 'highlight' => false];
+
+  if ($isAdmin) {
+    $authMenu[] = ['href' => '?page=admin_dashboard', 'label' => 'แดชบอร์ดผู้ดูแล', 'page' => 'admin_dashboard', 'highlight' => true];
+  }
+}
+
+$guestMenu = [
+  ['href' => '?page=signin', 'label' => 'เข้าสู่ระบบ', 'page' => 'signin'],
+  ['href' => '?page=signup', 'label' => 'สมัครสมาชิก', 'page' => 'signup'],
+];
+
+// csrf token for logout (expects csrf_token() exists)
+$csrf = function_exists('csrf_token') ? csrf_token() : '';
 
 ?>
 <nav class="navbar" role="navigation" aria-label="แถบนำทางหลัก" data-nav-id="<?= e($navInstanceId); ?>">
@@ -102,37 +88,46 @@ $buildMenuClasses = static function (array $item) use ($activePage): string {
 
     <div class="nav-right">
       <div class="nav-account">
-        <?php if ($isAuthenticated): ?>
-          <button
-            type="button"
-            class="account-btn"
-            id="<?= e($accountBtnId); ?>"
-            data-account-btn="true"
-            aria-haspopup="true"
-            aria-expanded="false"
-            aria-controls="<?= e($accountMenuId); ?>"
-            aria-label="เมนูบัญชีของ <?= e($displayName); ?>">
-            <?= e($displayName); ?>
-          </button>
+        <button
+          type="button"
+          class="account-btn"
+          id="<?= e($accountBtnId); ?>"
+          data-account-btn="true"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="<?= e($accountMenuId); ?>"
+          aria-label="<?= $isAuthenticated ? ('เมนูบัญชีของ ' . e($displayName)) : 'เมนูบัญชีสำหรับผู้ใช้ทั่วไป'; ?>">
+          <?= e($isAuthenticated ? $displayName : 'เมนู'); ?>
+        </button>
 
-          <div
-            class="account-menu"
-            id="<?= e($accountMenuId); ?>"
-            role="menu"
-            hidden
-            data-account-menu="true"
-            data-menu-root="account">
-            <?php foreach ($authMenuItems as $item): ?>
+        <div
+          class="account-menu"
+          id="<?= e($accountMenuId); ?>"
+          role="menu"
+          hidden
+          data-account-menu="true"
+          data-menu-root="account">
+
+          <?php if ($isAuthenticated): ?>
+            <?php foreach ($authMenu as $item): ?>
+              <?php
+              $href = (string)($item['href'] ?? '?page=home');
+              $label = (string)($item['label'] ?? 'เมนู');
+              $itemPage = (string)($item['page'] ?? '');
+              $highlight = (bool)($item['highlight'] ?? false);
+              ?>
               <a
-                class="<?= e($buildMenuClasses($item)); ?>"
-                href="<?= e((string)($item['href'] ?? '?page=home')); ?>"
+                class="<?= e($menuClass($itemPage, $highlight, $currentPage)); ?>"
+                href="<?= e($href); ?>"
                 role="menuitem"
                 data-menu-item="true">
-                <?= e((string)($item['label'] ?? 'เมนู')); ?>
+                <?= e($label); ?>
               </a>
             <?php endforeach; ?>
 
-            <!-- Logout: POST -->
+            <div class="menu-divider" role="separator" aria-hidden="true"></div>
+
+            <!-- Logout: POST + CSRF -->
             <form
               method="post"
               action="?page=<?= e($currentPage); ?>"
@@ -140,44 +135,31 @@ $buildMenuClasses = static function (array $item) use ($activePage): string {
               data-menu-item="true"
               role="none">
               <input type="hidden" name="action" value="logout">
+              <input type="hidden" name="_csrf" value="<?= e($csrf); ?>">
 
               <button type="submit" class="menu-item danger menu-btn" role="menuitem">
                 ออกจากระบบ
               </button>
             </form>
-          </div>
 
-        <?php else: ?>
-          <button
-            type="button"
-            class="account-btn"
-            id="<?= e($accountBtnId); ?>"
-            data-account-btn="true"
-            aria-haspopup="true"
-            aria-expanded="false"
-            aria-controls="<?= e($accountMenuId); ?>"
-            aria-label="เมนูบัญชีสำหรับผู้ใช้ทั่วไป">
-            เมนู
-          </button>
-
-          <div
-            class="account-menu"
-            id="<?= e($accountMenuId); ?>"
-            role="menu"
-            hidden
-            data-account-menu="true"
-            data-menu-root="account">
-            <?php foreach ($guestMenuItems as $item): ?>
+          <?php else: ?>
+            <?php foreach ($guestMenu as $item): ?>
+              <?php
+              $href = (string)($item['href'] ?? '?page=home');
+              $label = (string)($item['label'] ?? 'เมนู');
+              $itemPage = (string)($item['page'] ?? '');
+              ?>
               <a
-                class="<?= e($buildMenuClasses($item)); ?>"
-                href="<?= e((string)($item['href'] ?? '?page=home')); ?>"
+                class="<?= e($menuClass($itemPage, false, $currentPage)); ?>"
+                href="<?= e($href); ?>"
                 role="menuitem"
                 data-menu-item="true">
-                <?= e((string)($item['label'] ?? 'เมนู')); ?>
+                <?= e($label); ?>
               </a>
             <?php endforeach; ?>
-          </div>
-        <?php endif; ?>
+          <?php endif; ?>
+
+        </div>
       </div>
     </div>
   </div>

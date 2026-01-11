@@ -2,47 +2,32 @@
 
 declare(strict_types=1);
 
-if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
-}
+app_session_start();
 
-$helpersFile  = APP_PATH . '/includes/helpers.php';
-$databaseFile = APP_PATH . '/config/database.php';
-
-if (!is_file($helpersFile) || !is_file($databaseFile)) {
-  http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ระบบยังไม่พร้อมใช้งาน</p></div>';
-  return;
-}
-
-require_once $helpersFile;
-require_once $databaseFile;
-
-try {
-  app_session_start();
-} catch (Throwable $e) {
-  app_log('profile_session_error', ['error' => $e->getMessage()]);
-  http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
-  return;
-}
+/**
+ * Profile page
+ * - Requires auth (route guard should handle it, but keep defensive checks)
+ * - Supports: update profile, change password (PRG)
+ * - Uses CSRF for both forms
+ */
 
 $sessionUser = current_user();
 if ($sessionUser === null) {
   flash('error', 'กรุณาเข้าสู่ระบบก่อน');
-  redirect('?page=signin');
+  redirect('?page=signin', 303);
 }
 
 $userId = (int)($sessionUser['id'] ?? $sessionUser['user_id'] ?? 0);
 if ($userId <= 0) {
   app_log('profile_invalid_session', ['user' => $sessionUser]);
+  unset($_SESSION['user']);
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่');
-  redirect('?page=signin');
+  redirect('?page=signin', 303);
 }
 
-// ----------------------------
+// -----------------------------------------------------------------------------
 // PRG success flags
-// ----------------------------
+// -----------------------------------------------------------------------------
 $success = (string)($_GET['success'] ?? '');
 if ($success === 'profile') {
   flash('success', 'อัปเดตข้อมูลส่วนตัวเรียบร้อย');
@@ -50,64 +35,88 @@ if ($success === 'profile') {
   flash('success', 'เปลี่ยนรหัสผ่านสำเร็จ');
 }
 
-// ----------------------------
-// Handle POST actions
-// ----------------------------
-$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+$requireCsrf = static function (): void {
+  $token = (string)($_POST['_csrf'] ?? '');
+  if (!function_exists('csrf_verify') || !csrf_verify($token)) {
+    flash('error', 'คำขอไม่ถูกต้อง (CSRF)');
+    redirect('?page=profile', 303);
+  }
+};
 
+$normalizePhone = static function (string $raw): string {
+  $digits = preg_replace('/\D+/', '', $raw);
+  return is_string($digits) ? $digits : '';
+};
+
+$redirectProfile = static function (string $qs = ''): void {
+  $url = '?page=profile' . ($qs !== '' ? '&' . ltrim($qs, '&') : '');
+  redirect($url, 303);
+};
+
+// -----------------------------------------------------------------------------
+// Handle POST
+// -----------------------------------------------------------------------------
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if ($method === 'POST') {
+  // CSRF for all profile POSTs
+  $requireCsrf();
+
   // ---------- Update profile ----------
   if (isset($_POST['update_profile'])) {
     $fullName = trim((string)($_POST['full_name'] ?? ''));
     $address  = trim((string)($_POST['address'] ?? ''));
-
-    $phoneRaw = (string)($_POST['phone'] ?? '');
-    $phone    = preg_replace('/\D+/', '', $phoneRaw) ?? '';
+    $phone    = $normalizePhone((string)($_POST['phone'] ?? ''));
 
     if ($fullName === '') {
       flash('error', 'กรุณากรอกชื่อ-นามสกุล');
-      redirect('?page=profile');
+      $redirectProfile();
     }
 
     if ($phone !== '' && !preg_match('/^[0-9]{9,10}$/', $phone)) {
       flash('error', 'กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก');
-      redirect('?page=profile');
-    }
-
-    // check duplicate phone (if provided)
-    if ($phone !== '') {
-      $dup = Database::fetchOne(
-        'SELECT user_id FROM users WHERE phone = ? AND user_id != ? LIMIT 1',
-        [$phone, $userId]
-      );
-      if ($dup) {
-        flash('error', 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว');
-        redirect('?page=profile');
-      }
+      $redirectProfile();
     }
 
     try {
-      Database::transaction(function () use ($userId, $fullName, $address, $phone) {
+      Database::transaction(function () use ($userId, $fullName, $address, $phone): void {
+        // duplicate phone check (inside tx)
+        if ($phone !== '') {
+          $dup = Database::fetchOne(
+            'SELECT user_id FROM users WHERE phone = ? AND user_id != ? LIMIT 1',
+            [$phone, $userId]
+          );
+          if ($dup) {
+            throw new RuntimeException('duplicate_phone');
+          }
+        }
+
         Database::execute(
-          'UPDATE users SET full_name = ?, address = ?, phone = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
-          [$fullName, $address, $phone !== '' ? $phone : null, $userId]
+          'UPDATE users
+             SET full_name = ?, address = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = ?',
+          [$fullName, $address, ($phone !== '' ? $phone : null), $userId]
         );
       });
 
-      // keep session in sync (เผื่อ navbar / avatar / ฯลฯ)
-      $_SESSION['user']['full_name'] = $fullName;
+      // sync session
+      if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+        $_SESSION['user']['full_name'] = $fullName;
+      }
 
-      app_log('profile_update_success', ['user_id' => $userId, 'fields' => ['full_name', 'phone', 'address']]);
-
-      redirect('?page=profile&success=profile');
+      app_log('profile_update_success', ['user_id' => $userId]);
+      $redirectProfile('success=profile');
     } catch (Throwable $e) {
-      app_log('profile_update_error', [
-        'user_id' => $userId,
-        'full_name' => $fullName,
-        'error' => $e->getMessage(),
-      ]);
+      if ($e instanceof RuntimeException && $e->getMessage() === 'duplicate_phone') {
+        flash('error', 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว');
+        $redirectProfile();
+      }
+
+      app_log('profile_update_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
       flash('error', 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
-      redirect('?page=profile');
+      $redirectProfile();
     }
   }
 
@@ -119,30 +128,30 @@ if ($method === 'POST') {
 
     if ($current === '' || $new === '' || $confirm === '') {
       flash('error', 'กรุณากรอกข้อมูลให้ครบ');
-      redirect('?page=profile');
+      $redirectProfile();
     }
 
     if ($new !== $confirm) {
       flash('error', 'รหัสผ่านใหม่ไม่ตรงกัน');
-      redirect('?page=profile');
+      $redirectProfile();
     }
 
     if (strlen($new) < 8) {
       flash('error', 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');
-      redirect('?page=profile');
+      $redirectProfile();
     }
 
     if ($new === $current) {
       flash('error', 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม');
-      redirect('?page=profile');
+      $redirectProfile();
     }
 
     try {
       $row = Database::fetchOne('SELECT password FROM users WHERE user_id = ? LIMIT 1', [$userId]);
-      if (!$row || !password_verify($current, (string)$row['password'])) {
+      if (!$row || !password_verify($current, (string)($row['password'] ?? ''))) {
         app_log('profile_password_mismatch', ['user_id' => $userId]);
         flash('error', 'รหัสผ่านปัจจุบันไม่ถูกต้อง');
-        redirect('?page=profile');
+        $redirectProfile();
       }
 
       $hash = password_hash($new, PASSWORD_DEFAULT);
@@ -150,7 +159,7 @@ if ($method === 'POST') {
         throw new RuntimeException('password_hash_failed');
       }
 
-      Database::transaction(function () use ($userId, $hash) {
+      Database::transaction(function () use ($userId, $hash): void {
         Database::execute(
           'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
           [$hash, $userId]
@@ -159,54 +168,61 @@ if ($method === 'POST') {
 
       app_log('profile_password_change_success', ['user_id' => $userId]);
 
-      redirect('?page=profile&success=password');
+      session_regenerate_safe(true);
+      csrf_rotate();
+
+      $redirectProfile('success=password');
     } catch (Throwable $e) {
-      app_log('profile_change_password_error', [
-        'user_id' => $userId,
-        'error' => $e->getMessage(),
-      ]);
+      app_log('profile_change_password_error', ['user_id' => $userId, 'error' => $e->getMessage()]);
       flash('error', 'เปลี่ยนรหัสผ่านไม่สำเร็จ ลองใหม่อีกครั้ง');
-      redirect('?page=profile');
+      $redirectProfile();
     }
   }
 
   // Unknown POST
   flash('error', 'คำขอไม่ถูกต้อง');
-  redirect('?page=profile');
+  $redirectProfile();
 }
 
-// ----------------------------
+// -----------------------------------------------------------------------------
 // Load user data (GET)
-// ----------------------------
+// -----------------------------------------------------------------------------
 $user = Database::fetchOne(
   'SELECT user_id, username, full_name, address, phone, role, created_at, updated_at
-   FROM users WHERE user_id = ? LIMIT 1',
+     FROM users
+    WHERE user_id = ?
+    LIMIT 1',
   [$userId]
 );
 
 if (!$user) {
   unset($_SESSION['user']);
   flash('error', 'ไม่พบข้อมูลผู้ใช้ กรุณาเข้าสู่ระบบใหม่');
-  redirect('?page=signin');
+  redirect('?page=signin', 303);
 }
 
-// role text: รองรับทั้ง "admin"/"user" หรือ 1/0
-$roleVal  = $user['role'] ?? '';
-$isAdmin  = ((string)$roleVal === 'admin' || (string)$roleVal === 'ROLE_ADMIN' || (int)$roleVal === 1);
-$roleText = $isAdmin ? 'ผู้ดูแลระบบ' : 'สมาชิก';
+// role (use constants)
+$roleId = (int)($user['role'] ?? ROLE_MEMBER);
+$roleText = ($roleId === ROLE_ADMIN) ? 'ผู้ดูแลระบบ' : 'สมาชิก';
 
-$fullNameForAvatar = trim((string)($user['full_name'] ?? $user['username'] ?? 'User'));
+// avatar
+$avatarName = trim((string)($user['full_name'] ?? ''));
+if ($avatarName === '') $avatarName = (string)($user['username'] ?? 'User');
+
 $profileImageUrl = 'https://ui-avatars.com/api/?name=' .
-  urlencode($fullNameForAvatar) .
+  urlencode($avatarName) .
   '&size=200&background=1e40af&color=fff';
 
 $createdAt = (string)($user['created_at'] ?? '');
 $createdAtText = $createdAt ? date('d/m/Y', strtotime($createdAt)) : '-';
 
+// csrf token for forms
+$csrf = function_exists('csrf_token') ? csrf_token() : '';
+
 ?>
 <?php render_flash_popup(); ?>
 
-<div class="profile-container">
+<div class="profile-container" data-page="profile">
   <div class="profile-wrapper">
     <div class="profile-header">
       <h1>โปรไฟล์</h1>
@@ -216,7 +232,7 @@ $createdAtText = $createdAt ? date('d/m/Y', strtotime($createdAt)) : '-';
     <div class="profile-content">
       <div class="profile-picture-section">
         <div class="profile-picture">
-          <img src="<?= e($profileImageUrl); ?>" alt="Profile Picture" id="profileImage">
+          <img src="<?= e($profileImageUrl); ?>" alt="รูปโปรไฟล์" id="profileImage">
         </div>
         <h2 class="profile-name"><?= e((string)($user['full_name'] ?? '')); ?></h2>
         <p class="profile-role"><?= e($roleText); ?></p>
@@ -256,6 +272,7 @@ $createdAtText = $createdAt ? date('d/m/Y', strtotime($createdAt)) : '-';
 
           <!-- EDIT MODE -->
           <form method="POST" id="profileForm" class="profile-edit-form hidden" novalidate>
+            <input type="hidden" name="_csrf" value="<?= e($csrf); ?>">
             <input type="hidden" name="update_profile" value="1">
 
             <div class="info-grid">
@@ -300,6 +317,7 @@ $createdAtText = $createdAt ? date('d/m/Y', strtotime($createdAt)) : '-';
           <h3>เปลี่ยนรหัสผ่าน</h3>
 
           <form method="POST" class="password-form" novalidate>
+            <input type="hidden" name="_csrf" value="<?= e($csrf); ?>">
             <input type="hidden" name="change_password" value="1">
 
             <div class="form-group">

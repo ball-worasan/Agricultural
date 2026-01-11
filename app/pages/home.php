@@ -26,16 +26,27 @@ if (!class_exists('Database')) {
   return;
 }
 
-$user   = current_user();
-$userId = isset($user['user_id']) ? (int)$user['user_id'] : (isset($user['id']) ? (int)$user['id'] : null);
+$user = current_user();
+$userId = null;
+if (is_array($user)) {
+  $userId = isset($user['user_id']) ? (int)$user['user_id'] : (isset($user['id']) ? (int)$user['id'] : null);
+}
 
 // ตั้งค่าจำนวนรายการต่อหน้าแบบยืดหยุ่น
-defined('PROPERTIES_PER_PAGE') || define('PROPERTIES_PER_PAGE', 12);
+defined('PROPERTIES_PER_PAGE') || define('PROPERTIES_PER_PAGE', 5);
 
-// ฟังก์ชันช่วยโหลดข้อมูลแบบเป็นสัดส่วน
+// -------------------------------
+// COUNT: ให้เงื่อนไขเหมือน query list (สำคัญ)
+// -------------------------------
 $fetchTotalAreas = static function (): int {
   try {
-    $row = Database::fetchOne("SELECT COUNT(*) AS cnt FROM rental_area");
+    $row = Database::fetchOne("
+      SELECT COUNT(*) AS cnt
+      FROM rental_area ra
+      INNER JOIN district d ON d.district_id = ra.district_id
+      INNER JOIN province p ON p.province_id = d.province_id
+      WHERE ra.area_status IN ('available', 'booked')
+    ");
     return isset($row['cnt']) ? (int)$row['cnt'] : 0;
   } catch (Throwable $e) {
     app_log('home_count_error', ['message' => $e->getMessage()]);
@@ -83,7 +94,6 @@ $fetchAreasPage = static function (int $offset, int $limit): array {
       throw new RuntimeException('Failed to prepare home list query');
     }
 
-    // ป้องกันค่าติดลบ/ผิดประเภท
     $stmt->bindValue(':offset', max(0, (int)$offset), PDO::PARAM_INT);
     $stmt->bindValue(':limit',  max(1, (int)$limit),  PDO::PARAM_INT);
     $stmt->execute();
@@ -108,25 +118,24 @@ $fetchLocations = static function (): array {
   return [$provinces, $districts];
 };
 
-// รับ pg ด้วยฟิลเตอร์ และกำหนดค่าเริ่มต้น
+// pg
 $pgParam = (int)(filter_input(INPUT_GET, 'pg', FILTER_VALIDATE_INT, [
   'options' => ['min_range' => 1],
 ]) ?? 1);
+
 $currentPage = $pgParam > 0 ? $pgParam : 1;
-$offset      = ($currentPage - 1) * PROPERTIES_PER_PAGE;
 
+// total + clamp page
 $totalRow = $fetchTotalAreas();
-
 $totalPages = max(1, (int)ceil($totalRow / PROPERTIES_PER_PAGE));
-if ($currentPage > $totalPages) {
-  $currentPage = $totalPages;
-  $offset = ($currentPage - 1) * PROPERTIES_PER_PAGE;
-}
+$currentPage = max(1, min($currentPage, $totalPages));
 
-// โหลดรายการสำหรับหน้าปัจจุบัน
-$items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
+$offset = ($currentPage - 1) * PROPERTIES_PER_PAGE;
 
-// รายชื่อจังหวัด/อำเภอจากฐานข้อมูล
+// list
+$items = $fetchAreasPage($offset, (int)PROPERTIES_PER_PAGE);
+
+// locations
 [$provinces, $districts] = $fetchLocations();
 
 ?>
@@ -139,7 +148,11 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
         <select id="province" name="province">
           <option value="">เลือกจังหวัด</option>
           <?php foreach ($provinces as $prov): ?>
-            <option value="<?= e($prov['province_id'] ?? ''); ?>" data-name="<?= e($prov['province_name'] ?? ''); ?>"><?= e($prov['province_name'] ?? ''); ?></option>
+            <option
+              value="<?= e((string)($prov['province_id'] ?? '')); ?>"
+              data-name="<?= e((string)($prov['province_name'] ?? '')); ?>">
+              <?= e((string)($prov['province_name'] ?? '')); ?>
+            </option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -149,7 +162,11 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
         <select id="district" name="district" disabled>
           <option value="">เลือกจังหวัดก่อน</option>
           <?php foreach ($districts as $dist): ?>
-            <option value="<?= e($dist['district_id'] ?? ''); ?>" data-province-id="<?= e($dist['province_id'] ?? ''); ?>"><?= e($dist['district_name'] ?? ''); ?></option>
+            <option
+              value="<?= e((string)($dist['district_id'] ?? '')); ?>"
+              data-province-id="<?= e((string)($dist['province_id'] ?? '')); ?>">
+              <?= e((string)($dist['district_name'] ?? '')); ?>
+            </option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -197,43 +214,41 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
         $priceRaw   = isset($item['price_per_year']) ? (float)$item['price_per_year'] : 0.0;
         $depositPct = isset($item['deposit_percent']) ? (float)$item['deposit_percent'] : 0.0;
         $depositRaw = (int)round($priceRaw * $depositPct / 100.0);
-        $areaStatus = isset($item['area_status']) ? (string)$item['area_status'] : '';
 
-        // เช็คสถานะตาม enum ใน database: 'available', 'booked', 'unavailable'
+        $areaStatus = (string)($item['area_status'] ?? '');
         $isBooked = ($areaStatus === 'booked');
-        $ownerId  = isset($item['user_id']) ? (int)$item['user_id'] : null;
-        $isOwner  = ($userId !== null && $ownerId !== null && $ownerId === $userId);
+
+        $ownerId = isset($item['user_id']) ? (int)$item['user_id'] : null;
+        $isOwner = ($userId !== null && $ownerId !== null && $ownerId === $userId);
 
         $cardClass = $isBooked ? 'item-card booked' : 'item-card';
 
-        // ตรวจสอบรูปภาพและใช้ SVG placeholder ถ้าไม่มีรูป
         $mainImage = (string)($item['main_image'] ?? '');
         $svgPlaceholder = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"%3E%3Crect fill="%23f0f0f0" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999" font-size="24"%3ENo Image%3C/text%3E%3C/svg%3E';
 
-        // ถ้าไม่มีรูปหรือเป็น placeholder.jpg ให้ใช้ SVG
-        if ($mainImage === '' || $mainImage === '/images/placeholder.jpg' || stripos((string)$mainImage, 'placeholder') !== false) {
+        if ($mainImage === '' || $mainImage === '/images/placeholder.jpg' || stripos($mainImage, 'placeholder') !== false) {
           $mainImage = $svgPlaceholder;
         }
 
-        // แสดงวันที่สร้างจริงจากฐานข้อมูล
-        $createdAt = isset($item['created_at']) ? (string)$item['created_at'] : '';
+        $createdAt = (string)($item['created_at'] ?? '');
         $dataDate = $createdAt !== '' ? date('Y-m-d', strtotime($createdAt)) : '1970-01-01';
         $displayDate = $createdAt !== '' ? date('d/m/Y', strtotime($createdAt)) : '-';
 
-        $province = isset($item['province_name']) ? (string)$item['province_name'] : '';
-        $district = isset($item['district_name']) ? (string)$item['district_name'] : '';
-        $titleText = isset($item['area_name']) ? (string)$item['area_name'] : '';
-        $locationText = $district !== '' || $province !== ''
+        $province = (string)($item['province_name'] ?? '');
+        $district = (string)($item['district_name'] ?? '');
+
+        $titleText = (string)($item['area_name'] ?? '');
+        $locationText = ($district !== '' || $province !== '')
           ? trim(($district !== '' ? $district : '') . ($province !== '' ? ', ' . $province : ''))
           : '';
       ?>
         <a
-          href="?page=detail&id=<?= $areaId; ?>"
+          href="<?= e('?page=detail&id=' . $areaId); ?>"
           class="<?= e($cardClass); ?>"
           style="text-decoration:none;color:inherit;"
           data-province="<?= e($province); ?>"
           data-district="<?= e($district); ?>"
-          data-district-id="<?= isset($item['district_id']) ? (int)$item['district_id'] : 0; ?>"
+          data-district-id="<?= (int)($item['district_id'] ?? 0); ?>"
           data-price="<?= (int)$priceRaw; ?>"
           data-deposit="<?= (int)$depositRaw; ?>"
           data-date="<?= e($dataDate); ?>">
@@ -260,9 +275,7 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
 
           <div class="item-details">
             <h3 class="item-title"><?= e($titleText); ?></h3>
-            <p class="item-location">
-              📍<?= e($locationText); ?>
-            </p>
+            <p class="item-location">📍<?= e($locationText); ?></p>
 
             <div class="item-meta">
               <span class="meta-date">🕐 <?= e($displayDate); ?></span>
@@ -278,7 +291,7 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
   <?php if ($totalPages > 1): ?>
     <div class="pagination">
       <?php if ($currentPage > 1): ?>
-        <a class="page-link" href="?page=home&pg=<?= $currentPage - 1; ?>">ก่อนหน้า</a>
+        <a class="page-link" href="<?= e('?page=home&pg=' . ($currentPage - 1)); ?>">ก่อนหน้า</a>
       <?php endif; ?>
 
       <span class="page-info">
@@ -286,7 +299,7 @@ $items = $fetchAreasPage(max(0, (int)$offset), (int)PROPERTIES_PER_PAGE);
       </span>
 
       <?php if ($currentPage < $totalPages): ?>
-        <a class="page-link" href="?page=home&pg=<?= $currentPage + 1; ?>">ถัดไป</a>
+        <a class="page-link" href="<?= e('?page=home&pg=' . ($currentPage + 1)); ?>">ถัดไป</a>
       <?php endif; ?>
     </div>
   <?php endif; ?>

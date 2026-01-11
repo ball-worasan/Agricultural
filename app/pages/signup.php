@@ -2,196 +2,156 @@
 
 declare(strict_types=1);
 
-// ----------------------------
-// โหลดไฟล์แบบกันพลาด
-// ----------------------------
-if (!defined('APP_PATH')) {
-  define('APP_PATH', dirname(__DIR__, 2));
-}
+/**
+ * Signup page (controller + view)
+ * Assumes bootstrap already loaded helpers + database.
+ */
 
-$databaseFile = APP_PATH . '/config/database.php';
-if (!is_file($databaseFile)) {
-  app_log('signup_database_file_missing', ['file' => $databaseFile]);
-  http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
-  return;
-}
+app_session_start();
 
-$helpersFile = APP_PATH . '/includes/helpers.php';
-if (!is_file($helpersFile)) {
-  app_log('signup_helpers_file_missing', ['file' => $helpersFile]);
-  http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
-  return;
-}
-
-require_once $databaseFile;
-require_once $helpersFile;
-
-// ----------------------------
-// เริ่มเซสชัน
-// ----------------------------
-try {
-  app_session_start();
-} catch (Throwable $e) {
-  app_log('signup_session_error', ['error' => $e->getMessage()]);
-  http_response_code(500);
-  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
-  return;
-}
-
-// ----------------------------
-// เช็กสถานะล็อกอิน
-// ----------------------------
 if (is_authenticated()) {
-  redirect('?page=home');
+  redirect('?page=home', 303);
 }
 
-if (!class_exists('RegistrationRateLimiter')) {
-  class RegistrationRateLimiter
+// -----------------------------------------------------------------------------
+// Rate limiter (namespaced)
+// -----------------------------------------------------------------------------
+if (!class_exists('SignupRateLimiter')) {
+  class SignupRateLimiter
   {
     private const SESSION_KEY    = 'signup_attempts';
     private const WINDOW_KEY     = 'signup_window_started_at';
     private const MAX_ATTEMPTS   = 5;
-    private const WINDOW_SECONDS = 300; // 5 นาที
+    private const WINDOW_SECONDS = 300;
 
-    public function canAttempt(): bool
+    private function resetIfExpired(int $now): void
     {
-      $attempts = isset($_SESSION[self::SESSION_KEY]) ? (int) $_SESSION[self::SESSION_KEY] : 0;
-      $start    = isset($_SESSION[self::WINDOW_KEY]) ? (int) $_SESSION[self::WINDOW_KEY] : 0;
-      $now      = time();
-
-      // เริ่มหน้าต่างใหม่
+      $start = isset($_SESSION[self::WINDOW_KEY]) ? (int)$_SESSION[self::WINDOW_KEY] : 0;
       if ($start === 0 || ($now - $start) > self::WINDOW_SECONDS) {
         $_SESSION[self::SESSION_KEY] = 0;
         $_SESSION[self::WINDOW_KEY]  = $now;
-        return true;
       }
+    }
 
+    public function canAttempt(): bool
+    {
+      $now = time();
+      $this->resetIfExpired($now);
+      $attempts = isset($_SESSION[self::SESSION_KEY]) ? (int)$_SESSION[self::SESSION_KEY] : 0;
       return $attempts < self::MAX_ATTEMPTS;
     }
 
     public function registerFailedAttempt(): void
     {
-      $attempts = isset($_SESSION[self::SESSION_KEY]) ? (int) $_SESSION[self::SESSION_KEY] : 0;
+      $now = time();
+      $this->resetIfExpired($now);
+      $attempts = isset($_SESSION[self::SESSION_KEY]) ? (int)$_SESSION[self::SESSION_KEY] : 0;
       $_SESSION[self::SESSION_KEY] = $attempts + 1;
-
-      if (empty($_SESSION[self::WINDOW_KEY])) {
-        $_SESSION[self::WINDOW_KEY] = time();
-      }
     }
 
     public function reset(): void
     {
-      $_SESSION[self::SESSION_KEY]   = 0;
-      $_SESSION[self::WINDOW_KEY]    = time();
+      unset($_SESSION[self::SESSION_KEY], $_SESSION[self::WINDOW_KEY]);
     }
 
     public function remainingWaitSeconds(): int
     {
-      $start = isset($_SESSION[self::WINDOW_KEY]) ? (int) $_SESSION[self::WINDOW_KEY] : 0;
-      if ($start === 0) return 0;
+      $now = time();
+      $this->resetIfExpired($now);
 
-      $now  = time();
-      $diff = $now - $start;
+      $attempts = isset($_SESSION[self::SESSION_KEY]) ? (int)$_SESSION[self::SESSION_KEY] : 0;
+      if ($attempts < self::MAX_ATTEMPTS) return 0;
 
-      if ($diff >= self::WINDOW_SECONDS) return 0;
-
-      return self::WINDOW_SECONDS - $diff;
+      $start = isset($_SESSION[self::WINDOW_KEY]) ? (int)$_SESSION[self::WINDOW_KEY] : 0;
+      $remain = self::WINDOW_SECONDS - ($now - $start);
+      return $remain > 0 ? $remain : 0;
     }
   }
 }
 
-if (!class_exists('SignupUserRepository')) {
-  class SignupUserRepository
+// -----------------------------------------------------------------------------
+// Repository + Service (namespaced)
+// -----------------------------------------------------------------------------
+if (!class_exists('SignupRepository')) {
+  class SignupRepository
   {
     public function findDuplicate(string $username, string $phone): ?array
     {
-      $sql    = 'SELECT username, phone FROM users WHERE username = ? OR phone = ?';
-      $params = [$username, $phone];
+      // กันไว้: ถ้า phone ว่าง ให้เช็คเฉพาะ username
+      if ($phone === '') {
+        $row = Database::fetchOne(
+          'SELECT username, phone FROM users WHERE username = ? LIMIT 1',
+          [$username]
+        );
+        return $row ?: null;
+      }
 
-      $row = Database::fetchOne($sql, $params);
+      $row = Database::fetchOne(
+        'SELECT username, phone FROM users WHERE username = ? OR phone = ? LIMIT 1',
+        [$username, $phone]
+      );
+
       return $row ?: null;
     }
 
-    public function createUser(array $data): bool
+    public function createUser(array $data): void
     {
-      return Database::execute(
-        'INSERT INTO users 
-                    (username, password, full_name, address, phone, role) 
-                 VALUES 
-                    (?, ?, ?, ?, ?, ?)',
+      $ok = Database::execute(
+        'INSERT INTO users (username, password, full_name, address, phone, role)
+         VALUES (?, ?, ?, ?, ?, ?)',
         [
           $data['username'],
           $data['password_hash'],
           $data['full_name'],
           $data['address'],
           $data['phone'],
-          $data['role'] ?? 2,
+          $data['role'],
         ]
-      ) > 0;
+      );
+
+      if ($ok <= 0) {
+        throw new RuntimeException('insert_failed');
+      }
     }
   }
 }
 
-if (!class_exists('RegistrationService')) {
-  class RegistrationService
+if (!class_exists('SignupService')) {
+  class SignupService
   {
-    /** @var SignupUserRepository */
-    private $users;
+    public function __construct(private SignupRepository $users) {}
 
-    public function __construct(SignupUserRepository $users)
-    {
-      $this->users = $users;
-    }
-
-    /**
-     * @param array $input
-     * @return array{success:bool,message:?string, normalized?:array}
-     */
+    /** @return array{success:bool,message:?string, normalized?:array} */
     public function register(array $input): array
     {
-      $firstName = isset($input['firstname']) ? trim((string) $input['firstname']) : '';
-      $lastName  = isset($input['lastname']) ? trim((string) $input['lastname']) : '';
+      $firstName = trim((string)($input['firstname'] ?? ''));
+      $lastName  = trim((string)($input['lastname'] ?? ''));
       $fullName  = trim($firstName . ' ' . $lastName);
-      $address   = isset($input['address']) ? trim((string) $input['address']) : '';
+      $address   = trim((string)($input['address'] ?? ''));
 
-      $phoneRaw = isset($input['phone']) ? (string) $input['phone'] : '';
+      $phoneRaw = (string)($input['phone'] ?? '');
       $phone    = preg_replace('/\D/', '', $phoneRaw) ?? '';
 
-      $username = isset($input['username']) ? trim((string) $input['username']) : '';
+      $username = trim((string)($input['username'] ?? ''));
 
-      $password        = isset($input['password']) ? trim((string) $input['password']) : '';
-      $passwordConfirm = isset($input['password_confirm']) ? trim((string) $input['password_confirm']) : '';
+      $password        = (string)($input['password'] ?? '');
+      $passwordConfirm = (string)($input['password_confirm'] ?? '');
 
-      // required fields
-      $missingFields = [];
-      if ($firstName === '') $missingFields[] = 'ชื่อ';
-      if ($lastName === '') $missingFields[] = 'นามสกุล';
-      if ($username === '') $missingFields[] = 'ชื่อผู้ใช้';
-      if ($password === '') $missingFields[] = 'รหัสผ่าน';
-      if ($passwordConfirm === '') $missingFields[] = 'ยืนยันรหัสผ่าน';
-      if ($address === '') $missingFields[] = 'ที่อยู่';
-      if ($phone === '') $missingFields[] = 'เบอร์โทรศัพท์';
+      $missing = [];
+      if ($firstName === '') $missing[] = 'ชื่อ';
+      if ($lastName === '') $missing[] = 'นามสกุล';
+      if ($username === '') $missing[] = 'ชื่อผู้ใช้';
+      if ($password === '') $missing[] = 'รหัสผ่าน';
+      if ($passwordConfirm === '') $missing[] = 'ยืนยันรหัสผ่าน';
+      if ($address === '') $missing[] = 'ที่อยู่';
+      if ($phone === '') $missing[] = 'เบอร์โทรศัพท์';
 
-      if (!empty($missingFields)) {
-        app_log('signup_validation_missing_fields', [
-          'missing' => $missingFields,
-          'received' => [
-            'firstname' => $firstName !== '' ? 'ok' : 'empty',
-            'lastname' => $lastName !== '' ? 'ok' : 'empty',
-            'username' => $username !== '' ? 'ok' : 'empty',
-            'password' => $password !== '' ? 'has_value' : 'empty',
-            'password_confirm' => $passwordConfirm !== '' ? 'has_value' : 'empty',
-            'address' => $address !== '' ? 'ok' : 'empty',
-            'phone' => $phone !== '' ? 'ok' : 'empty',
-          ]
-        ]);
-        return ['success' => false, 'message' => 'กรุณากรอก: ' . implode(', ', $missingFields)];
+      if ($missing) {
+        return ['success' => false, 'message' => 'กรุณากรอก: ' . implode(', ', $missing)];
       }
 
       if (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $username)) {
-        return ['success' => false, 'message' => 'ชื่อผู้ใช้ต้องมีความยาว 3-20 ตัวอักษร และประกอบด้วย a-z, A-Z, 0-9, _ เท่านั้น'];
+        return ['success' => false, 'message' => 'ชื่อผู้ใช้ต้องมีความยาว 3-20 ตัวอักษร และใช้ได้เฉพาะ a-z, A-Z, 0-9, _'];
       }
 
       if (!preg_match('/^[0-9]{9,10}$/', $phone)) {
@@ -206,30 +166,23 @@ if (!class_exists('RegistrationService')) {
         return ['success' => false, 'message' => 'รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร'];
       }
 
-      // duplicate check
       try {
-        $duplicate = $this->users->findDuplicate($username, $phone);
+        $dup = $this->users->findDuplicate($username, $phone);
       } catch (Throwable $e) {
         app_log('signup_duplicate_check_error', ['error' => $e->getMessage()]);
         return ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการตรวจสอบข้อมูลซ้ำ กรุณาลองใหม่อีกครั้ง'];
       }
 
-      if ($duplicate) {
+      if ($dup) {
         $fields = [];
+        if (!empty($dup['username']) && (string)$dup['username'] === $username) $fields[] = 'ชื่อผู้ใช้';
+        if (!empty($dup['phone']) && preg_replace('/\D/', '', (string)$dup['phone']) === $phone) $fields[] = 'เบอร์โทรศัพท์';
 
-        if (!empty($duplicate['username']) && $duplicate['username'] === $username) $fields[] = 'ชื่อผู้ใช้';
-        if (!empty($duplicate['phone']) && preg_replace('/\D/', '', (string)$duplicate['phone']) === $phone) {
-          $fields[] = 'เบอร์โทรศัพท์';
-        }
-
-        return [
-          'success' => false,
-          'message' => !empty($fields) ? implode(' หรือ ', $fields) . ' นี้ถูกใช้งานแล้ว' : 'ข้อมูลนี้ถูกใช้งานแล้ว',
-        ];
+        return ['success' => false, 'message' => $fields ? implode(' หรือ ', $fields) . ' นี้ถูกใช้งานแล้ว' : 'ข้อมูลนี้ถูกใช้งานแล้ว'];
       }
 
-      $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-      if ($hashedPassword === false) {
+      $hash = password_hash($password, PASSWORD_DEFAULT);
+      if ($hash === false) {
         return ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการเข้ารหัสรหัสผ่าน'];
       }
 
@@ -238,66 +191,52 @@ if (!class_exists('RegistrationService')) {
         'address'       => $address,
         'phone'         => $phone,
         'username'      => $username,
-        'password_hash' => $hashedPassword,
+        'password_hash' => $hash,
         'role'          => ROLE_MEMBER,
       ];
 
       try {
         Database::transaction(function () use ($data) {
-          $ok = Database::execute(
-            'INSERT INTO users 
-                        (username, password, full_name, address, phone, role) 
-                     VALUES 
-                        (?, ?, ?, ?, ?, ?)',
-            [
-              $data['username'],
-              $data['password_hash'],
-              $data['full_name'],
-              $data['address'],
-              $data['phone'],
-              $data['role'] ?? 2,
-            ]
-          );
-          if ($ok <= 0) {
-            throw new RuntimeException('insert_failed');
-          }
+          $this->users->createUser($data);
         });
       } catch (Throwable $e) {
-        app_log('signup_create_user_error', [
-          'username' => $data['username'] ?? null,
-          'error' => $e->getMessage(),
-        ]);
+        app_log('signup_create_user_error', ['username' => $data['username'], 'error' => $e->getMessage()]);
         return ['success' => false, 'message' => 'เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง'];
       }
 
-      return [
-        'success'    => true,
-        'message'    => null,
-        'normalized' => $data,
-      ];
+      return ['success' => true, 'message' => null, 'normalized' => $data];
     }
   }
 }
 
-$rateLimiter = new RegistrationRateLimiter();
-$userRepo    = new SignupUserRepository();
-$service     = new RegistrationService($userRepo);
+// -----------------------------------------------------------------------------
+// Controller (POST -> PRG)
+// -----------------------------------------------------------------------------
+$rateLimiter = new SignupRateLimiter();
+$service = new SignupService(new SignupRepository());
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   store_old_input([
-    'firstname' => $_POST['firstname'] ?? '',
-    'lastname'  => $_POST['lastname'] ?? '',
-    'address'   => $_POST['address'] ?? '',
-    'phone'     => $_POST['phone'] ?? '',
-    'username'  => $_POST['username'] ?? '',
+    'firstname' => (string)($_POST['firstname'] ?? ''),
+    'lastname'  => (string)($_POST['lastname'] ?? ''),
+    'address'   => (string)($_POST['address'] ?? ''),
+    'phone'     => (string)($_POST['phone'] ?? ''),
+    'username'  => (string)($_POST['username'] ?? ''),
   ]);
+
+  $token = (string)($_POST['_csrf'] ?? '');
+  if (!csrf_verify($token)) {
+    app_log('signup_csrf_failed', ['ip' => $_SERVER['REMOTE_ADDR'] ?? null]);
+    flash('error', 'คำขอไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
+    redirect('?page=signup', 303);
+  }
 
   if (!$rateLimiter->canAttempt()) {
     $wait = $rateLimiter->remainingWaitSeconds();
     $wait = ($wait > 0) ? $wait : 30;
 
     flash('error', 'คุณพยายามสมัครสมาชิกหลายครั้งเกินไป กรุณาลองใหม่อีกครั้งใน ' . $wait . ' วินาที');
-    redirect('?page=signup');
+    redirect('?page=signup', 303);
   }
 
   $result = $service->register($_POST);
@@ -305,29 +244,40 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
   if (!$result['success']) {
     $rateLimiter->registerFailedAttempt();
 
-    $message = (!empty($result['message'])) ? (string)$result['message'] : 'เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง';
+    $message = is_string($result['message']) && $result['message'] !== ''
+      ? $result['message']
+      : 'เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง';
+
     flash('error', $message);
 
     app_log('signup_failed', [
-      'username' => $_POST['username'] ?? null,
+      'username' => preg_replace('/[^a-zA-Z0-9_]/', '', (string)($_POST['username'] ?? '')),
       'ip'       => $_SERVER['REMOTE_ADDR'] ?? null,
     ]);
 
-    redirect('?page=signup');
+    redirect('?page=signup', 303);
   }
 
-  // success
   $rateLimiter->reset();
   $_SESSION['_old_input'] = [];
 
+  if (function_exists('csrf_rotate')) {
+    csrf_rotate();
+  }
+
   app_log('signup_success', [
-    'username' => $_POST['username'] ?? null,
+    'username' => (string)($result['normalized']['username'] ?? ($_POST['username'] ?? null)),
     'ip'       => $_SERVER['REMOTE_ADDR'] ?? null,
   ]);
 
   flash('success', 'สมัครสมาชิกสำเร็จ! คุณสามารถเข้าสู่ระบบได้แล้ว');
-  redirect('?page=signin');
+  redirect('?page=signin', 303);
 }
+
+// -----------------------------------------------------------------------------
+// View
+// -----------------------------------------------------------------------------
+$csrf = csrf_token();
 
 ?>
 <div class="signup-container">
@@ -335,7 +285,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     <div class="signup-hero">
       <div class="hero-content">
         <h2>สมัครสมาชิก</h2>
-        <p>เป็นส่วนหนึ่งของชุมชนอาคารเกษตรแล้ววันนี้</p>
+        <p>เป็นส่วนหนึ่งของชุมชนพื้นที่เกษตรแล้ววันนี้</p>
         <div class="hero-features">
           <div class="feature-item">✓ ปล่อยเช่าพื้นที่ของคุณ</div>
           <div class="feature-item">✓ ค้นหาแปลงเกษตรที่เหมาะสม</div>
@@ -343,6 +293,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         </div>
       </div>
     </div>
+
     <div class="signup-form-wrapper">
       <div class="signup-content">
         <div class="signup-header">
@@ -351,6 +302,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         </div>
 
         <form action="?page=signup" method="POST" class="signup-form" novalidate>
+          <input type="hidden" name="_csrf" value="<?= e($csrf); ?>">
+
           <div class="form-row">
             <div class="form-group">
               <label for="firstname">ชื่อ</label>
@@ -414,7 +367,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                   </svg>
                   <svg class="eye-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
                     <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                    <line x1="1" y1="1" x2="23" y1="23"></line>
                   </svg>
                 </button>
               </div>

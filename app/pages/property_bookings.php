@@ -2,35 +2,27 @@
 
 declare(strict_types=1);
 
-// ----------------------------
-// โหลดไฟล์แบบกันพลาด
-// ----------------------------
-if (!defined('BASE_PATH')) {
-  define('BASE_PATH', dirname(__DIR__, 2));
-}
-if (!defined('APP_PATH')) {
-  define('APP_PATH', BASE_PATH . '/app');
-}
+/**
+ * property_bookings.php (REFAC)
+ * - GET only (read-only)
+ * - Owner/Admin authorization
+ * - Safe bootstrap + session + guards
+ * - Cleaner status mapping + date formatting
+ */
+
+if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
+if (!defined('APP_PATH'))  define('APP_PATH', BASE_PATH . '/app');
+
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 
 $databaseFile = APP_PATH . '/config/database.php';
-if (!is_file($databaseFile)) {
-  // ห้ามใช้ app_log ถ้า helpers ยังไม่ถูก include
-  error_log('property_bookings_database_file_missing: ' . $databaseFile);
-  http_response_code(500);
-  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['success' => false, 'message' => 'System error'], JSON_UNESCAPED_UNICODE);
-  } else {
-    echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถโหลดข้อมูลได้</p></div>';
-  }
-  return;
-}
+$helpersFile  = APP_PATH . '/includes/helpers.php';
 
-$helpersFile = APP_PATH . '/includes/helpers.php';
-if (!is_file($helpersFile)) {
-  error_log('property_bookings_helpers_file_missing: ' . $helpersFile);
+if (!is_file($databaseFile) || !is_file($helpersFile)) {
+  error_log('property_bookings_bootstrap_missing');
   http_response_code(500);
-  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+
+  if ($method === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'message' => 'System error'], JSON_UNESCAPED_UNICODE);
   } else {
@@ -43,35 +35,27 @@ require_once $databaseFile;
 require_once $helpersFile;
 
 // ----------------------------
-// เริ่มเซสชัน
+// Session
 // ----------------------------
 try {
   app_session_start();
 } catch (Throwable $e) {
   app_log('property_bookings_session_error', ['error' => $e->getMessage()]);
   http_response_code(500);
-  if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    json_response(['success' => false, 'message' => 'Session error'], 500);
-  } else {
-    echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
-  }
+  echo '<div class="container"><h1>เกิดข้อผิดพลาด</h1><p>ไม่สามารถเริ่มเซสชันได้</p></div>';
   return;
 }
 
 // ----------------------------
-// อ่านเมธอดคำขอ
+// Read-only: GET only
 // ----------------------------
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-
-// ----------------------------
-// หน้านี้เป็น read-only: ไม่รับ POST (ตัด approve/reject ออก)
-// ----------------------------
-if ($method === 'POST') {
+if ($method !== 'GET') {
   json_response(['success' => false, 'message' => 'Method not allowed'], 405);
+  return;
 }
 
 // ----------------------------
-// เช็กสิทธิ์ล็อกอิน
+// Auth
 // ----------------------------
 $user = current_user();
 if ($user === null) {
@@ -80,39 +64,63 @@ if ($user === null) {
   return;
 }
 
-$userId = (int)($user['user_id'] ?? $user['id'] ?? 0);
+$userId   = (int)($user['user_id'] ?? $user['id'] ?? 0);
+$userRole = (int)($user['role'] ?? 0);
+$isAdmin  = defined('ROLE_ADMIN') && $userRole === ROLE_ADMIN;
+
 if ($userId <= 0) {
   flash('error', 'ข้อมูลผู้ใช้ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
   redirect('?page=signin');
   return;
 }
 
-// ----------------------
-// GET: แสดงรายการจอง
-// ----------------------
-$areaId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+// ----------------------------
+// Input
+// ----------------------------
+$areaId = (int)(filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?? 0);
 if ($areaId <= 0) {
-  redirect('?page=my_properties');
+  redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
+  return;
 }
 
-// ตรวจสอบว่าเป็นเจ้าของพื้นที่
-$area = Database::fetchOne(
-  'SELECT area_id, user_id, area_name, price_per_year, deposit_percent, area_status 
-   FROM rental_area 
-   WHERE area_id = ? AND user_id = ?',
-  [$areaId, $userId]
-);
+// ----------------------------
+// Fetch area (owner/admin)
+// ----------------------------
+try {
+  if ($isAdmin) {
+    $area = Database::fetchOne(
+      'SELECT area_id, user_id, area_name, price_per_year, deposit_percent, area_status
+         FROM rental_area
+        WHERE area_id = ?
+        LIMIT 1',
+      [$areaId]
+    );
+  } else {
+    $area = Database::fetchOne(
+      'SELECT area_id, user_id, area_name, price_per_year, deposit_percent, area_status
+         FROM rental_area
+        WHERE area_id = ? AND user_id = ?
+        LIMIT 1',
+      [$areaId, $userId]
+    );
+  }
+} catch (Throwable $e) {
+  app_log('property_bookings_area_fetch_error', ['area_id' => $areaId, 'user_id' => $userId, 'error' => $e->getMessage()]);
+  $area = null;
+}
 
 if (!$area) {
   flash('error', 'ไม่พบพื้นที่หรือคุณไม่มีสิทธิ์เข้าถึง');
-  redirect('?page=my_properties');
+  redirect($isAdmin ? '?page=admin_dashboard' : '?page=my_properties');
+  return;
 }
 
-// ดึงรายการจองทั้งหมดของพื้นที่นี้
-$bookings = [];
+// ----------------------------
+// Bookings
+// ----------------------------
 try {
   $bookings = Database::fetchAll(
-    'SELECT 
+    'SELECT
         bd.booking_id, bd.area_id, bd.user_id, bd.booking_date, bd.deposit_amount, bd.deposit_status,
         bd.created_at, bd.updated_at,
         u.full_name, u.username, u.phone
@@ -127,7 +135,9 @@ try {
   $bookings = [];
 }
 
-// mapping สถานะ
+// ----------------------------
+// Mappings
+// ----------------------------
 $statusText = [
   'pending'  => 'รออนุมัติ',
   'approved' => 'อนุมัติแล้ว',
@@ -140,27 +150,36 @@ $statusClass = [
   'rejected' => 'status-rejected',
 ];
 
+$areaStatusLabel = match ((string)($area['area_status'] ?? '')) {
+  'available'   => 'พร้อมให้เช่า',
+  'booked'      => 'ติดจอง',
+  'unavailable' => 'ปิดให้เช่า',
+  'reserved'    => 'รอตรวจสอบสลิป',
+  default       => 'ไม่ระบุ',
+};
+
 ?>
 <div class="property-bookings-container">
   <div class="page-header">
-    <a href="?page=my_properties" class="back-link">
+    <?php $backHref = $isAdmin ? '?page=admin_dashboard' : '?page=my_properties'; ?>
+    <a href="<?= e($backHref); ?>" class="back-link">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="19" y1="12" x2="5" y2="12"></line>
         <polyline points="12 19 5 12 12 5"></polyline>
       </svg>
-      <span>กลับไปพื้นที่ของฉัน</span>
+      <span><?= $isAdmin ? 'กลับไปแดชบอร์ดแอดมิน' : 'กลับไปพื้นที่ของฉัน'; ?></span>
     </a>
   </div>
 
   <div class="property-header">
     <div class="property-info">
-      <h1><?= e((string)$area['area_name']); ?></h1>
+      <h1><?= e((string)($area['area_name'] ?? '')); ?></h1>
       <div class="property-meta">
         <span class="meta-item">
-          ราคา/ปี: <strong>฿<?= number_format((float)$area['price_per_year']); ?></strong>
+          ราคา/ปี: <strong>฿<?= number_format((float)($area['price_per_year'] ?? 0)); ?></strong>
         </span>
         <span class="meta-item">
-          สถานะพื้นที่: <strong><?= e((string)($area['area_status'] === 'available' ? 'พร้อมให้เช่า' : ($area['area_status'] === 'booked' ? 'ติดจอง' : 'ปิดให้เช่า'))); ?></strong>
+          สถานะพื้นที่: <strong><?= e($areaStatusLabel); ?></strong>
         </span>
       </div>
     </div>
@@ -190,16 +209,26 @@ $statusClass = [
           $statusCss     = $statusClass[$bookingStatus] ?? 'status-unknown';
 
           $depositAmount = (float)($booking['deposit_amount'] ?? 0);
-          $bookingDateRaw = $booking['booking_date'] ?? null;
-          $bookingDateLabel = $bookingDateRaw ? date('d/m/Y', strtotime((string)$bookingDateRaw)) : '-';
+
+          $bookingDateRaw   = (string)($booking['booking_date'] ?? '');
+          $bookingDateLabel = '-';
+          if ($bookingDateRaw !== '') {
+            try {
+              $bookingDateLabel = (new DateTimeImmutable($bookingDateRaw))->format('d/m/Y');
+            } catch (Throwable $e) {
+              $bookingDateLabel = '-';
+            }
+          }
 
           $userFullName = trim((string)($booking['full_name'] ?? ''));
-          if ($userFullName === '') $userFullName = 'ผู้ใช้ #' . (int)$booking['user_id'];
+          if ($userFullName === '') $userFullName = 'ผู้ใช้ #' . (int)($booking['user_id'] ?? 0);
 
-          $userPhone = trim((string)($booking['phone'] ?? '-'));
-          if ($userPhone === '') $userPhone = '-';
+          $userPhone = trim((string)($booking['phone'] ?? ''));
+          $userPhoneLabel = $userPhone !== '' ? $userPhone : '-';
 
           $userName = trim((string)($booking['username'] ?? ''));
+          $userNameLabel = $userName !== '' ? '@' . $userName : 'ไม่มี';
+
           $profileImageUrl = 'https://ui-avatars.com/api/?name=' . urlencode($userFullName) . '&size=60&background=667eea&color=fff&bold=true';
         ?>
           <div class="booking-card">
@@ -215,17 +244,15 @@ $statusClass = [
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
                     </svg>
-                    <?= e($userName ? '@' . $userName : 'ไม่มี'); ?>
+                    <?= e($userNameLabel); ?>
                   </p>
 
-                  <?php if ($userPhone !== '-'): ?>
-                    <p class="user-contact">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-                      </svg>
-                      <?= e($userPhone); ?>
-                    </p>
-                  <?php endif; ?>
+                  <p class="user-contact">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                    </svg>
+                    <?= e($userPhoneLabel); ?>
+                  </p>
                 </div>
               </div>
 
@@ -258,7 +285,6 @@ $statusClass = [
                 </a>
               </div>
             <?php endif; ?>
-
           </div>
         <?php endforeach; ?>
       </div>
