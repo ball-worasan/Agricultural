@@ -268,22 +268,117 @@ if ($method === 'POST' && isset($_POST['update_payment'])) {
 
   $flow = (string)($_POST['flow'] ?? 'deposit');
 
-  // ============== flow full (ยังไม่ผูก DB) ==============
+  // ============== flow full (สร้าง payment record) ==============
   if ($flow === 'full') {
     $contractId = (int)($_POST['contract_id'] ?? 0);
     if ($contractId <= 0) {
       json_response(['success' => false, 'message' => 'ข้อมูลสัญญาไม่ถูกต้อง'], 400);
     }
 
+    // validate slip upload
     $validation = $validateSlipUpload();
     if (!$validation['success']) {
       json_response(['success' => false, 'message' => (string)$validation['message']], 400);
     }
 
-    json_response([
-      'success' => false,
-      'message' => 'โหมดชำระเงินสัญญายังไม่ได้ผูกกับฐานข้อมูล (ต้องเพิ่มตาราง/คอลัมน์รองรับ slip + status)',
-    ], 400);
+    try {
+      // fetch contract + verify ownership
+      $contract = Database::fetchOne(
+        'SELECT c.contract_id, c.booking_id, c.price_per_year,
+                bd.user_id AS tenant_id, bd.area_id, bd.deposit_amount, bd.deposit_status
+         FROM contract c
+         JOIN booking_deposit bd ON c.booking_id = bd.booking_id
+         WHERE c.contract_id = ?
+         LIMIT 1',
+        [$contractId]
+      );
+
+      if (!$contract) {
+        json_response(['success' => false, 'message' => 'ไม่พบข้อมูลสัญญา'], 404);
+      }
+
+      if ((int)($contract['tenant_id'] ?? 0) !== $userId) {
+        json_response(['success' => false, 'message' => 'คุณไม่มีสิทธิ์ชำระเงินสัญญานี้'], 403);
+      }
+
+      if ((string)($contract['deposit_status'] ?? '') !== 'approved') {
+        json_response(['success' => false, 'message' => 'การจองยังไม่ได้รับการอนุมัติ'], 400);
+      }
+
+      // ตรวจสอบ payment status ที่มีอยู่แล้ว (ป้องกันชำระซ้ำ)
+      $existingPayment = Database::fetchOne(
+        'SELECT payment_id, status FROM payment WHERE contract_id = ? AND status IN ("pending", "confirmed") LIMIT 1',
+        [$contractId]
+      );
+
+      if ($existingPayment) {
+        $paymentStatus = (string)($existingPayment['status'] ?? '');
+        json_response([
+          'success' => false,
+          'message' => $paymentStatus === 'confirmed' 
+            ? 'คุณชำระเงินสัญญานี้แล้ว' 
+            : 'การชำระเงินสัญญานี้กำลังรอตรวจสอบ กรุณารอการติดต่อกลับ',
+        ], 400);
+      }
+
+      // upload slip
+      $areaId = (int)($contract['area_id'] ?? 0);
+      $slipPath = $uploadSlip($userId, $areaId, (string)$validation['tmp_name'], (string)$validation['extension']);
+      if ($slipPath === null) {
+        json_response(['success' => false, 'message' => 'อัปโหลดสลิปไม่สำเร็จ'], 500);
+      }
+
+      // calculate full amount due
+      $baseTotal = (float)($contract['price_per_year'] ?? 0);
+      $feeRate = $getFeeRate();
+      $feeAmount = round($baseTotal * $feeRate / 100, 2);
+      $depositAmt = (float)($contract['deposit_amount'] ?? 0);
+      $amountDue = max(0.0, $baseTotal - $depositAmt); // เฉพาะค่าเช่า ไม่รวมค่าธรรมเนียม
+
+      // create payment record
+      Database::transaction(function (PDO $pdo) use ($contractId, $amountDue, $slipPath, $feeRate): int {
+        $paymentDate = date('Y-m-d');
+        $paymentTime = date('H:i:s');
+        $netAmount = round($amountDue * (100 - $feeRate) / 100, 2); // after fee deduction
+
+        Database::execute(
+          'INSERT INTO payment (contract_id, amount, payment_date, payment_time, net_amount, slip_image, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, "pending", NOW())',
+          [
+            $contractId,
+            $amountDue,
+            $paymentDate,
+            $paymentTime,
+            $netAmount,
+            $slipPath,
+          ]
+        );
+
+        return (int)$pdo->lastInsertId();
+      });
+
+      app_log('payment_full_submitted', [
+        'user_id' => $userId,
+        'contract_id' => $contractId,
+        'amount' => $amountDue,
+        'slip' => $slipPath,
+      ]);
+
+      json_response([
+        'success' => true,
+        'message' => 'ส่งสลิปอนุมัติเรียบร้อยแล้ว (รอตรวจสอบ)',
+        'contract_id' => $contractId,
+        'redirect' => '?page=history',
+      ]);
+    } catch (Throwable $e) {
+      app_log('payment_full_error', [
+        'user_id' => $userId,
+        'contract_id' => $contractId,
+        'error' => $e->getMessage(),
+      ]);
+
+      json_response(['success' => false, 'message' => 'เกิดข้อผิดพลาด: ' . $e->getMessage()], 500);
+    }
   }
 
   // ============== flow deposit ==============
@@ -443,12 +538,14 @@ if ($flow === 'full') {
   if ($contractId <= 0) redirect('?page=history', 303);
 
   $contractRow = Database::fetchOne(
-    'SELECT c.contract_id, c.total_price, c.price_per_year, c.start_date, c.end_date,
+    'SELECT c.contract_id, c.price_per_year, c.start_date, c.end_date,
             bd.deposit_amount, bd.deposit_status, bd.booking_date, bd.user_id AS tenant_id,
-            ra.area_name
+            ra.area_name,
+            p.payment_id, p.status AS payment_status
        FROM contract c
        JOIN booking_deposit bd ON c.booking_id = bd.booking_id
        JOIN rental_area ra      ON bd.area_id = ra.area_id
+       LEFT JOIN payment p      ON p.contract_id = c.contract_id AND p.status IN ("pending", "confirmed")
       WHERE c.contract_id = ?
       LIMIT 1',
     [$contractId]
@@ -458,12 +555,22 @@ if ($flow === 'full') {
   if ((int)($contractRow['tenant_id'] ?? 0) !== $userId) redirect('?page=history', 303);
   if ((string)($contractRow['deposit_status'] ?? '') !== 'approved') redirect('?page=history', 303);
 
-  $baseTotal  = (float)($contractRow['total_price'] ?? $contractRow['price_per_year'] ?? 0);
+  $baseTotal  = (float)($contractRow['price_per_year'] ?? 0);
   $feeRate    = $getFeeRate();
   $feeAmount  = round($baseTotal * $feeRate / 100, 2);
   $depositAmt = (float)($contractRow['deposit_amount'] ?? 0);
 
-  $amountDue = max(0.0, $baseTotal + $feeAmount - $depositAmt);
+  $amountDue = max(0.0, $baseTotal - $depositAmt); // เฉพาะค่าเช่า ไม่รวมค่าธรรมเนียม (หัก owner)
+
+  // ตรวจสอบว่าชำระแล้วหรือยัง
+  $paymentStatus = (string)($contractRow['payment_status'] ?? '');
+  if ($paymentStatus !== '') {
+    $statusMsg = $paymentStatus === 'confirmed' 
+      ? 'คุณชำระเงินสัญญานี้แล้ว' 
+      : 'การชำระเงินสัญญานี้กำลังรอตรวจสอบ';
+    flash('info', $statusMsg);
+    redirect('?page=history', 303);
+  }
 
   $pageTitle = 'ชำระเงินสัญญา';
   $displayAreaName = (string)($contractRow['area_name'] ?? '');

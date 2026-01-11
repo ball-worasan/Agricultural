@@ -256,12 +256,14 @@ try {
         COALESCE(ra.deposit_percent, 10) AS deposit_percent,
         COALESCE(ra.area_status, "ไม่ระบุ") AS area_status,
         COALESCE(d.district_name, "ไม่ระบุ") AS district_name,
-        COALESCE(p.province_name, "ไม่ระบุ") AS province_name
+        COALESCE(p.province_name, "ไม่ระบุ") AS province_name,
+        py.payment_id, py.status AS payment_status
      FROM booking_deposit bd
      LEFT JOIN rental_area ra ON bd.area_id = ra.area_id
      LEFT JOIN contract c     ON c.booking_id = bd.booking_id
      LEFT JOIN district d     ON ra.district_id = d.district_id
      LEFT JOIN province p     ON d.province_id = p.province_id
+     LEFT JOIN payment py     ON py.contract_id = c.contract_id AND py.status IN ("pending", "confirmed")
      WHERE bd.user_id = ?
      ORDER BY bd.created_at DESC',
     [$userId]
@@ -347,6 +349,7 @@ $csrf = function_exists('csrf_token') ? csrf_token() : '';
         $bookingDateLabel = $bookingDate !== '' ? date('d/m/Y', strtotime($bookingDate)) : '-';
 
         $hasContract = !empty($b['contract_id']);
+        $paymentStatus = (string)($b['payment_status'] ?? '');
         $areaStatus = (string)($b['area_status'] ?? 'ไม่ระบุ');
 
         $areaStatusLabel =
@@ -402,20 +405,30 @@ $csrf = function_exists('csrf_token') ? csrf_token() : '';
             <?php elseif ($status === 'approved' && $hasContract): ?>
               <a
                 class="action-btn view"
-                href="?page=contract_detail&id=<?= (int)$b['contract_id']; ?>"
+                href="?page=contract&booking_id=<?= (int)$b['booking_id']; ?>"
                 title="ดูรายละเอียดสัญญา"
                 style="text-decoration:none;">
                 📄 ดูรายละเอียดสัญญา
               </a>
 
-              <!-- ถ้าคุณใช้ payment full-flow: -->
-              <a
-                class="action-btn pay"
-                href="?page=payment&contract_id=<?= (int)$b['contract_id']; ?>"
-                title="ชำระเงินเต็มสัญญา"
-                style="text-decoration:none;">
-                💳 ชำระเงิน
-              </a>
+              <!-- ชำระเงิน: disabled ถ้ามี payment pending/confirmed -->
+              <?php if ($paymentStatus === 'confirmed'): ?>
+                <button class="action-btn pay" disabled title="ชำระแล้ว">
+                  ✅ ชำระแล้ว
+                </button>
+              <?php elseif ($paymentStatus === 'pending'): ?>
+                <button class="action-btn pay" disabled title="รอตรวจสอบ">
+                  ⏳ รอตรวจสอบ
+                </button>
+              <?php else: ?>
+                <a
+                  class="action-btn pay"
+                  href="?page=payment&contract_id=<?= (int)$b['contract_id']; ?>"
+                  title="ชำระเงินเต็มสัญญา"
+                  style="text-decoration:none;">
+                  💳 ชำระเงิน
+                </a>
+              <?php endif; ?>
             <?php endif; ?>
           </div>
         </div>

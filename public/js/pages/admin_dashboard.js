@@ -1,212 +1,249 @@
 (function () {
   "use strict";
 
-  function selectAll(selector, root) {
-    return Array.prototype.slice.call(
-      (root || document).querySelectorAll(selector)
-    );
+  function $all(sel, root) {
+    return Array.prototype.slice.call((root || document).querySelectorAll(sel));
+  }
+  function $(sel, root) {
+    return (root || document).querySelector(sel);
   }
 
+  // ---------- Tabs ----------
   function activateTab(name) {
-    selectAll(".tab-content").forEach(function (el) {
-      el.classList.remove("active");
+    $all(".tab-content").forEach(function (el) {
+      el.classList.toggle("active", el.id === "tab-" + name);
     });
-    selectAll(".tab-btn").forEach(function (el) {
-      el.classList.remove("active");
+    $all(".admin-tabs .tab-btn").forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.tab === name);
     });
-    var target = document.getElementById("tab-" + name);
-    if (target) target.classList.add("active");
-    var btn = selectAll(".admin-tabs .tab-btn").find(function (b) {
-      return (b.textContent || "").indexOf(name) !== -1;
-    });
-    if (btn) btn.classList.add("active");
   }
 
   function wireTabs() {
-    var tabs = selectAll(".admin-tabs .tab-btn");
-    tabs.forEach(function (btn) {
-      btn.addEventListener("click", function (e) {
-        var label = btn.getAttribute("onclick") || "";
-        // Fallback: parse inline handler param 'switchTab(event, "<name>")'
-        var match = label.match(/switchTab\(event,\s*'([^']+)'\)/);
-        var name = match ? match[1] : btn.dataset.tab || "properties";
-        // If inline function exists, let it handle; else do it here
-        if (typeof window.switchTab === "function") return;
-        e.preventDefault();
-        activateTab(name);
+    $all(".admin-tabs .tab-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        activateTab(btn.dataset.tab || "properties");
       });
     });
   }
 
-  function wireFormValidation() {
-    var settingsForm = document.querySelector(".settings-form");
-    if (!settingsForm) return;
+  // ---------- Confirm forms ----------
+  function wireConfirmForms() {
+    $all("form.confirm-form[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (e) {
+        var msg = form.getAttribute("data-confirm") || "ยืนยันการทำรายการ?";
+        if (!confirm("⚠️ " + msg + "\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้")) {
+          e.preventDefault();
+        }
+      });
+    });
+  }
 
-    settingsForm.addEventListener("submit", function (e) {
-      var isValid = true;
+  // ---------- Auto submit select ----------
+  function wireAutoSubmitSelects() {
+    // สถานะพื้นที่: เปลี่ยนแล้ว submit เลย (ถ้าจะให้ confirm ก็เติมเอง)
+    $all("select.js-auto-submit-select").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        var form = sel.closest("form");
+        if (form) form.submit();
+      });
+    });
+
+    // สถานะมัดจำ: ต้อง confirm
+    var labels = {
+      pending: "รอดำเนินการ",
+      approved: "อนุมัติแล้ว",
+      rejected: "ปฏิเสธ",
+    };
+    $all("select.js-deposit-status").forEach(function (sel) {
+      var original = sel.value;
+      sel.addEventListener("change", function (e) {
+        var next = sel.value;
+        var ok = confirm(
+          'ยืนยันการเปลี่ยนสถานะเป็น "' + (labels[next] || next) + '" หรือไม่?'
+        );
+        if (!ok) {
+          sel.value = original;
+          e.preventDefault();
+          return;
+        }
+        original = next;
+        var form = sel.closest("form");
+        if (form) form.submit();
+      });
+    });
+  }
+
+  // ---------- Fee form validation ----------
+  function wireFeeValidation() {
+    var form = $(".settings-form[data-validate='fee']");
+    if (!form) return;
+
+    form.addEventListener("submit", function (e) {
       var errors = [];
 
-      // ตรวจสอบค่าธรรมเนียม
-      var feeRate = settingsForm.querySelector('input[name="fee_rate"]');
-      if (feeRate) {
-        var rate = parseFloat(feeRate.value);
-        if (isNaN(rate) || rate < 0 || rate > 100) {
-          isValid = false;
-          errors.push("ค่าธรรมเนียมต้องอยู่ระหว่าง 0-100%");
-          feeRate.classList.add("error");
-        } else {
-          feeRate.classList.remove("error");
-        }
+      var feeRate = form.querySelector('input[name="fee_rate"]');
+      var accountNumber = form.querySelector('input[name="account_number"]');
+      var accountName = form.querySelector('input[name="account_name"]');
+      var bankName = form.querySelector('input[name="bank_name"]');
+
+      function mark(el, ok) {
+        if (!el) return;
+        el.classList.toggle("error", !ok);
       }
 
-      // ตรวจสอบเลขบัญชี/พร้อมเพย์
-      var accountNumber = settingsForm.querySelector('input[name="account_number"]');
-      if (accountNumber && accountNumber.value.trim() === "") {
-        isValid = false;
+      var rate = feeRate ? parseFloat(feeRate.value) : NaN;
+      if (isNaN(rate) || rate < 0 || rate > 100) {
+        errors.push("ค่าธรรมเนียมต้องอยู่ระหว่าง 0-100%");
+        mark(feeRate, false);
+      } else mark(feeRate, true);
+
+      if (!accountNumber || accountNumber.value.trim() === "") {
         errors.push("กรุณาระบุเลขบัญชีหรือพร้อมเพย์");
-        accountNumber.classList.add("error");
-      } else if (accountNumber) {
-        accountNumber.classList.remove("error");
-      }
+        mark(accountNumber, false);
+      } else mark(accountNumber, true);
 
-      // ตรวจสอบชื่อบัญชี
-      var accountName = settingsForm.querySelector('input[name="account_name"]');
-      if (accountName && accountName.value.trim() === "") {
-        isValid = false;
+      if (!accountName || accountName.value.trim() === "") {
         errors.push("กรุณาระบุชื่อบัญชี");
-        accountName.classList.add("error");
-      } else if (accountName) {
-        accountName.classList.remove("error");
-      }
+        mark(accountName, false);
+      } else mark(accountName, true);
 
-      // ตรวจสอบธนาคาร
-      var bankName = settingsForm.querySelector('input[name="bank_name"]');
-      if (bankName && bankName.value.trim() === "") {
-        isValid = false;
+      if (!bankName || bankName.value.trim() === "") {
         errors.push("กรุณาระบุชื่อธนาคาร");
-        bankName.classList.add("error");
-      } else if (bankName) {
-        bankName.classList.remove("error");
-      }
+        mark(bankName, false);
+      } else mark(bankName, true);
 
-      // ตรวจสอบวันที่มีผล
-      var effectiveFrom = settingsForm.querySelector('input[name="effective_from"]');
-      if (effectiveFrom && effectiveFrom.value === "") {
-        isValid = false;
-        errors.push("กรุณาระบุวันที่มีผล");
-        effectiveFrom.classList.add("error");
-      } else if (effectiveFrom) {
-        effectiveFrom.classList.remove("error");
-      }
-
-      // ตรวจสอบวันที่สิ้นสุด (ถ้ามี) ต้องมากกว่าวันที่เริ่ม
-      var effectiveTo = settingsForm.querySelector('input[name="effective_to"]');
-      if (effectiveFrom && effectiveTo && effectiveTo.value !== "") {
-        var dateFrom = new Date(effectiveFrom.value);
-        var dateTo = new Date(effectiveTo.value);
-        if (dateTo <= dateFrom) {
-          isValid = false;
-          errors.push("วันที่สิ้นสุดต้องมากกว่าวันที่เริ่มมีผล");
-          effectiveTo.classList.add("error");
-        } else {
-          effectiveTo.classList.remove("error");
-        }
-      }
-
-      if (!isValid) {
+      if (errors.length) {
         e.preventDefault();
-        alert("กรุณาตรวจสอบข้อมูล:\n\n" + errors.join("\n"));
+        alert("กรุณาตรวจสอบข้อมูล:\n\n- " + errors.join("\n- "));
       }
     });
 
-    // เคลียร์ error เมื่อ user แก้ไข
-    selectAll(".settings-form input").forEach(function (input) {
+    $all(".settings-form input", form).forEach(function (input) {
       input.addEventListener("input", function () {
-        this.classList.remove("error");
+        input.classList.remove("error");
       });
     });
   }
 
-  function wireDeleteConfirmations() {
-    // ยืนยันการลบพื้นที่
-    selectAll('form[onsubmit*="ยืนยันการลบพื้นที่"]').forEach(function (form) {
-      form.addEventListener("submit", function (e) {
-        var confirmed = confirm("⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบพื้นที่นี้?\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้");
-        if (!confirmed) {
-          e.preventDefault();
-        }
-      });
-    });
+  // ---------- Slip Modal ----------
+  function wireSlipModal() {
+    var modal = $("#slipModal");
+    if (!modal) return;
 
-    // ยืนยันการลบการจอง
-    selectAll('form[onsubmit*="ยืนยันการลบการจอง"]').forEach(function (form) {
-      form.addEventListener("submit", function (e) {
-        var confirmed = confirm("⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบการจองนี้?\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้");
-        if (!confirmed) {
-          e.preventDefault();
-        }
-      });
-    });
+    var img = $("#slipImage");
+    var bookingIdSpan = $("#slipBookingId");
+    var paymentIdSpan = $("#slipPaymentId");
+    var paymentIdRow = $("#slipPaymentIdRow");
 
-    // ยืนยันการลบผู้ใช้
-    selectAll('form[onsubmit*="ยืนยันการลบผู้ใช้"]').forEach(function (form) {
-      form.addEventListener("submit", function (e) {
-        var confirmed = confirm("⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้นี้?\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้");
-        if (!confirmed) {
-          e.preventDefault();
-        }
-      });
-    });
-  }
+    function open(url, bookingId, paymentId) {
+      if (img) img.src = url || "";
+      if (bookingIdSpan) bookingIdSpan.textContent = bookingId || "";
+      
+      if (paymentId && paymentIdSpan && paymentIdRow) {
+        paymentIdSpan.textContent = paymentId;
+        paymentIdRow.style.display = "block";
+      } else if (paymentIdRow) {
+        paymentIdRow.style.display = "none";
+      }
+      
+      modal.classList.add("show");
+      modal.setAttribute("aria-hidden", "false");
+    }
 
-  function wireStatusChangeConfirmations() {
-    // ยืนยันการเปลี่ยนสถานะมัดจำ
-    selectAll('select[name="deposit_status"]').forEach(function (select) {
-      var originalValue = select.value;
-      select.addEventListener("change", function (e) {
-        var newStatus = this.value;
-        var statusLabels = {
-          pending: "รอดำเนินการ",
-          approved: "อนุมัติแล้ว",
-          rejected: "ปฏิเสธ"
-        };
-        var confirmed = confirm(
-          "ยืนยันการเปลี่ยนสถานะเป็น \"" + (statusLabels[newStatus] || newStatus) + "\" หรือไม่?"
+    function close() {
+      modal.classList.remove("show");
+      modal.setAttribute("aria-hidden", "true");
+      if (img) img.src = "";
+    }
+
+    $all(".js-view-slip").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        open(
+          btn.dataset.slipUrl || "",
+          btn.dataset.bookingId || "",
+          btn.dataset.paymentId || ""
         );
-        if (!confirmed) {
-          this.value = originalValue;
-          e.preventDefault();
-        } else {
-          originalValue = newStatus;
-        }
       });
+    });
+
+    $all(".js-close-slip").forEach(function (btn) {
+      btn.addEventListener("click", close);
+    });
+
+    window.addEventListener("click", function (event) {
+      if (event.target === modal) close();
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") close();
     });
   }
 
-  function addLoadingStates() {
-    // เพิ่ม loading state ให้ปุ่ม submit
-    selectAll("form").forEach(function (form) {
-      form.addEventListener("submit", function () {
-        var submitBtn = form.querySelector('button[type="submit"]');
-        if (submitBtn && !submitBtn.disabled) {
-          submitBtn.disabled = true;
-          var originalText = submitBtn.textContent;
-          submitBtn.textContent = "กำลังดำเนินการ...";
-          setTimeout(function () {
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalText;
-          }, 3000);
-        }
+  // ---------- User Detail Modal ----------
+  function wireUserDetailModal() {
+    var modal = $("#userDetailModal");
+    if (!modal) return;
+
+    function open(data) {
+      $("#userDetailId").textContent = data.userId || "";
+      $("#userDetailName").textContent = data.userName || "";
+      $("#userDetailUsername").textContent = data.username || "ไม่ระบุ";
+      $("#userDetailPhone").textContent = data.phone || "ไม่ระบุ";
+      $("#userDetailEmail").textContent = data.email || "ไม่ระบุ";
+      $("#userDetailAddress").textContent = data.address || "ไม่ระบุ";
+      $("#userDetailRole").textContent = data.role || "";
+      $("#userDetailCreated").textContent = data.createdAt || "";
+      $("#userDetailAccountNumber").textContent = data.accountNumber || "ไม่ได้ระบุ";
+      $("#userDetailBankName").textContent = data.bankName || "ไม่ได้ระบุ";
+      $("#userDetailAccountName").textContent = data.accountName || "ไม่ได้ระบุ";
+
+      modal.classList.add("show");
+      modal.setAttribute("aria-hidden", "false");
+    }
+
+    function close() {
+      modal.classList.remove("show");
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    $all(".js-view-user-detail").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        open({
+          userId: btn.dataset.userId,
+          userName: btn.dataset.userName,
+          username: btn.dataset.username,
+          phone: btn.dataset.phone,
+          email: btn.dataset.email,
+          address: btn.dataset.address,
+          role: btn.dataset.role,
+          createdAt: btn.dataset.createdAt,
+          accountNumber: btn.dataset.accountNumber,
+          bankName: btn.dataset.bankName,
+          accountName: btn.dataset.accountName,
+        });
       });
+    });
+
+    $all(".js-close-user-detail").forEach(function (btn) {
+      btn.addEventListener("click", close);
+    });
+
+    window.addEventListener("click", function (event) {
+      if (event.target === modal) close();
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") close();
     });
   }
 
   function init() {
     wireTabs();
-    wireFormValidation();
-    wireDeleteConfirmations();
-    wireStatusChangeConfirmations();
-    addLoadingStates();
+    wireConfirmForms();
+    wireAutoSubmitSelects();
+    wireFeeValidation();
+    wireSlipModal();
+    wireUserDetailModal();
   }
 
   if (document.readyState === "loading") {

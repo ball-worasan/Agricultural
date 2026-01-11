@@ -69,6 +69,9 @@ if ($method === 'POST') {
     $fullName = trim((string)($_POST['full_name'] ?? ''));
     $address  = trim((string)($_POST['address'] ?? ''));
     $phone    = $normalizePhone((string)($_POST['phone'] ?? ''));
+    $accountNumber = trim((string)($_POST['account_number'] ?? ''));
+    $bankName = trim((string)($_POST['bank_name'] ?? ''));
+    $accountName = trim((string)($_POST['account_name'] ?? ''));
 
     if ($fullName === '') {
       flash('error', 'กรุณากรอกชื่อ-นามสกุล');
@@ -81,7 +84,7 @@ if ($method === 'POST') {
     }
 
     try {
-      Database::transaction(function () use ($userId, $fullName, $address, $phone): void {
+      Database::transaction(function () use ($userId, $fullName, $address, $phone, $accountNumber, $bankName, $accountName): void {
         // duplicate phone check (inside tx)
         if ($phone !== '') {
           $dup = Database::fetchOne(
@@ -95,9 +98,19 @@ if ($method === 'POST') {
 
         Database::execute(
           'UPDATE users
-             SET full_name = ?, address = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+             SET full_name = ?, address = ?, phone = ?, 
+                 account_number = ?, bank_name = ?, account_name = ?,
+                 updated_at = CURRENT_TIMESTAMP
            WHERE user_id = ?',
-          [$fullName, $address, ($phone !== '' ? $phone : null), $userId]
+          [
+            $fullName, 
+            $address, 
+            ($phone !== '' ? $phone : null),
+            ($accountNumber !== '' ? $accountNumber : null),
+            ($bankName !== '' ? $bankName : null),
+            ($accountName !== '' ? $accountName : null),
+            $userId
+          ]
         );
       });
 
@@ -188,7 +201,9 @@ if ($method === 'POST') {
 // Load user data (GET)
 // -----------------------------------------------------------------------------
 $user = Database::fetchOne(
-  'SELECT user_id, username, full_name, address, phone, role, created_at, updated_at
+  'SELECT user_id, username, full_name, address, phone, 
+          account_number, bank_name, account_name,
+          role, created_at, updated_at
      FROM users
     WHERE user_id = ?
     LIMIT 1',
@@ -267,6 +282,22 @@ $csrf = function_exists('csrf_token') ? csrf_token() : '';
               </div>
             </div>
 
+            <h4 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--text-primary);">ข้อมูลบัญชีธนาคาร</h4>
+            <div class="info-grid">
+              <div class="info-item">
+                <label>เลขบัญชี/พร้อมเพย์</label>
+                <p><?= e((string)($user['account_number'] ?? 'ไม่ได้ระบุ')); ?></p>
+              </div>
+              <div class="info-item">
+                <label>ชื่อธนาคาร</label>
+                <p><?= e((string)($user['bank_name'] ?? 'ไม่ได้ระบุ')); ?></p>
+              </div>
+              <div class="info-item">
+                <label>ชื่อบัญชี</label>
+                <p><?= e((string)($user['account_name'] ?? 'ไม่ได้ระบุ')); ?></p>
+              </div>
+            </div>
+
             <button type="button" class="btn-edit" id="editProfileBtn" aria-label="แก้ไขข้อมูล">แก้ไขข้อมูล</button>
           </div>
 
@@ -303,6 +334,25 @@ $csrf = function_exists('csrf_token') ? csrf_token() : '';
               <div class="info-item">
                 <label>ชื่อผู้ใช้</label>
                 <p><?= e((string)($user['username'] ?? '')); ?> <small>(ไม่สามารถเปลี่ยนได้)</small></p>
+              </div>
+            </div>
+
+            <h4 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--text-primary);">ข้อมูลบัญชีธนาคาร</h4>
+            <div class="info-grid">
+              <div class="info-item">
+                <label>เลขบัญชี/พร้อมเพย์</label>
+                <input type="text" name="account_number" value="<?= e((string)($user['account_number'] ?? '')); ?>" class="edit-input" placeholder="เช่น 0641365430 หรือ 123-4-56789-0">
+                <small style="color: var(--text-secondary);">ระบุเลขบัญชีธนาคารหรือพร้อมเพย์</small>
+              </div>
+
+              <div class="info-item">
+                <label>ชื่อธนาคาร</label>
+                <input type="text" name="bank_name" value="<?= e((string)($user['bank_name'] ?? '')); ?>" class="edit-input" placeholder="เช่น ธนาคารกสิกรไทย">
+              </div>
+
+              <div class="info-item">
+                <label>ชื่อบัญชี</label>
+                <input type="text" name="account_name" value="<?= e((string)($user['account_name'] ?? '')); ?>" class="edit-input" placeholder="เช่น นายสมชาย ใจดี">
               </div>
             </div>
 

@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS `users` (
   `role` INT NOT NULL,
   `phone` VARCHAR(20) NOT NULL,
   `address` TEXT NOT NULL,
+  `account_number` VARCHAR(50) NULL COMMENT 'เลขบัญชีธนาคาร/พร้อมเพย์',
+  `bank_name` VARCHAR(100) NULL COMMENT 'ชื่อธนาคาร',
+  `account_name` VARCHAR(100) NULL COMMENT 'ชื่อบัญชีเจ้าของเลขบัญชี',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_user_username` (`username`)

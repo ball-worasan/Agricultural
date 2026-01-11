@@ -8,7 +8,7 @@ declare(strict_types=1);
  * - Booking must be approved
  * - Safe bootstrap + session + guards
  * - Upload optional PDF
- * - total_price เก็บ “ค่าเช่า + ค่าธรรมเนียม” เพื่อเอาไปคำนวณหน้า payment ได้ตรง
+
  */
 
 if (!defined('BASE_PATH')) define('BASE_PATH', dirname(__DIR__, 2));
@@ -28,12 +28,14 @@ require_once $helpersFile;
 
 // Fallback CSRF helpers for static analyzers (intelephense)
 if (!function_exists('csrf_field') && function_exists('csrf_token')) {
-  function csrf_field(): string {
+  function csrf_field(): string
+  {
     return '<input type="hidden" name="_csrf" value="' . e((string)csrf_token()) . '">';
   }
 }
 if (!function_exists('csrf_token_field') && function_exists('csrf_token')) {
-  function csrf_token_field(): string {
+  function csrf_token_field(): string
+  {
     return csrf_field();
   }
 }
@@ -120,6 +122,7 @@ if (!$booking) {
   return;
 }
 
+$areaId   = (int)($booking['area_id'] ?? 0);
 $ownerId  = (int)($booking['owner_id'] ?? 0);
 $tenantId = (int)($booking['tenant_id'] ?? 0);
 
@@ -143,19 +146,26 @@ if ($depositStatus !== 'approved') {
 }
 
 // ----------------------------
-// Existing contract
+// Existing contract + payment status
 // ----------------------------
 try {
   $contract = Database::fetchOne(
-    'SELECT contract_id, start_date, end_date, price_per_year, total_price, terms, contract_file, created_at
-       FROM contract
-      WHERE booking_id = ?
+    'SELECT c.contract_id, c.start_date, c.end_date, c.price_per_year, c.terms, c.contract_file, c.created_at,
+            p.payment_id, p.status AS payment_status
+       FROM contract c
+       LEFT JOIN payment p ON p.contract_id = c.contract_id AND p.status IN ("pending", "confirmed")
+      WHERE c.booking_id = ?
       LIMIT 1',
     [$bookingId]
   );
 } catch (Throwable $e) {
   app_log('contract_existing_fetch_error', ['booking_id' => $bookingId, 'error' => $e->getMessage()]);
   $contract = null;
+}
+
+$paymentStatus = '';
+if ($contract) {
+  $paymentStatus = (string)($contract['payment_status'] ?? '');
 }
 
 // ----------------------------
@@ -180,8 +190,8 @@ $tenantName  = (string)($booking['tenant_name'] ?? '');
 $tenantPhone = (string)($booking['tenant_phone'] ?? '');
 
 $feeAmount    = $pricePerYear * ($feeRate / 100.0);
-$totalDue     = $pricePerYear + $feeAmount;
-$remainingDue = $totalDue - $depositAmount;
+$totalDue     = $pricePerYear; // ผู้เช่าต้องชำระเฉพาะค่าเช่าเท่านั้น
+$remainingDue = $totalDue - $depositAmount; // คงเหลือหลังหักมัดจำ
 
 $defaultStart = date('Y-m-d');
 $defaultEnd   = (new DateTimeImmutable($defaultStart))->modify('+' . $termMonths . ' months')->format('Y-m-d');
@@ -281,19 +291,17 @@ if ($isCreatePost) {
         $startObj,
         $endObj,
         $pricePerYear,
-        $totalDue,
         $terms,
         $contractFilePath
       ) {
         Database::execute(
-          'INSERT INTO contract (booking_id, start_date, end_date, price_per_year, total_price, terms, contract_file, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+          'INSERT INTO contract (booking_id, start_date, end_date, price_per_year, terms, contract_file, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, NOW())',
           [
             $bookingId,
             $startObj->format('Y-m-d'),
             $endObj->format('Y-m-d'),
             $pricePerYear,
-            $totalDue,          // ✅ เก็บรวมค่าธรรมเนียมด้วย
             $terms,
             $contractFilePath,
           ]
@@ -304,7 +312,7 @@ if ($isCreatePost) {
 
       app_log('contract_created', ['booking_id' => $bookingId, 'contract_id' => $newContractId, 'user_id' => $userId]);
       flash('success', 'สร้างสัญญาเช่า 1 ปีเรียบร้อยแล้ว');
-      redirect('?page=payment&contract_id=' . $newContractId . '&mode=full');
+      redirect('?page=property_bookings&id=' . $areaId);
       return;
     } catch (Throwable $e) {
       app_log('contract_create_error', ['booking_id' => $bookingId, 'error' => $e->getMessage()]);
@@ -347,11 +355,11 @@ if ($isCreatePost) {
           <strong class="stat-value">฿<?= number_format($pricePerYear, 2); ?></strong>
         </div>
         <div class="stat">
-          <span class="stat-label">ค่าธรรมเนียม</span>
+          <span class="stat-label">ค่าธรรมเนียม (หักจากผู้ให้เช่า)</span>
           <strong class="stat-value"><?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2) . ' (' . number_format($feeRate, 2) . '%)') : 'ไม่มี'; ?></strong>
         </div>
         <div class="stat">
-          <span class="stat-label">รวมที่ต้องชำระ</span>
+          <span class="stat-label">ผู้เช่าต้องชำระ</span>
           <strong class="stat-value">฿<?= number_format($totalDue, 2); ?></strong>
         </div>
       </div>
@@ -379,9 +387,9 @@ if ($isCreatePost) {
           <li><span>จังหวัด / อำเภอ</span><strong><?= e(($booking['province_name'] ?? '-') . ' · ' . ($booking['district_name'] ?? '-')); ?></strong></li>
           <li><span>ขนาดพื้นที่</span><strong><?= $areaSizeRai > 0 ? e(number_format($areaSizeRai, 2) . ' ไร่') : '-'; ?></strong></li>
           <li><span>ค่าเช่าต่อปี</span><strong>฿<?= number_format($pricePerYear, 2); ?></strong></li>
-          <li><span>ค่าธรรมเนียม</span><strong><?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2)) : 'ไม่มี'; ?></strong></li>
+          <li><span>ค่าธรรมเนียม (หักผู้ให้เช่า)</span><strong><?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2)) : 'ไม่มี'; ?></strong></li>
           <li><span>มัดจำที่ชำระ</span><strong>฿<?= number_format($depositAmount, 2); ?></strong></li>
-          <li><span>รวมต้องชำระ</span><strong>฿<?= number_format($totalDue, 2); ?></strong></li>
+          <li><span>ผู้เช่าต้องชำระรวม</span><strong>฿<?= number_format($totalDue, 2); ?></strong></li>
           <li><span>คงเหลือหลังหักมัดจำ</span><strong>฿<?= number_format($remainingDue, 2); ?></strong></li>
         </ul>
       </div>
@@ -427,12 +435,16 @@ if ($isCreatePost) {
             <p><?= e((string)($contract['end_date'] ?? '-')); ?></p>
           </div>
           <div>
-            <label>ค่าเช่าต่อปี</label>
+            <label>ค่าเช่าต่อปี (ผู้เช่าชำระ)</label>
             <p>฿<?= number_format((float)($contract['price_per_year'] ?? 0), 2); ?></p>
           </div>
           <div>
-            <label>ยอดรวม 1 ปี</label>
-            <p>฿<?= number_format((float)($contract['total_price'] ?? 0), 2); ?></p>
+            <label>ค่าธรรมเนียม (หักผู้ให้เช่า)</label>
+            <p><?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2)) : 'ไม่มี'; ?></p>
+          </div>
+          <div>
+            <label>รวมผู้เช่าต้องชำระ</label>
+            <p>฿<?= number_format($totalDue, 2); ?></p>
           </div>
           <div>
             <label>สร้างเมื่อ</label>
@@ -455,7 +467,13 @@ if ($isCreatePost) {
 
         <?php if ($isTenant): ?>
           <div class="form-actions">
-            <a href="?page=payment&contract_id=<?= (int)$contract['contract_id']; ?>&mode=full" class="btn-submit">ไปหน้าชำระเงิน</a>
+            <?php if ($paymentStatus === 'confirmed'): ?>
+              <button class="btn-submit" disabled title="ชำระแล้ว">✅ ชำระแล้ว</button>
+            <?php elseif ($paymentStatus === 'pending'): ?>
+              <button class="btn-submit" disabled title="รอตรวจสอบ">⏳ รอตรวจสอบ</button>
+            <?php else: ?>
+              <a href="?page=payment&contract_id=<?= (int)$contract['contract_id']; ?>&mode=full" class="btn-submit">ไปหน้าชำระเงิน</a>
+            <?php endif; ?>
             <a href="?page=history" class="btn-cancel">กลับประวัติการจอง</a>
           </div>
         <?php else: ?>
@@ -495,19 +513,19 @@ if ($isCreatePost) {
         <section class="section-card">
           <div class="section-head">
             <span class="step-label">ขั้นตอนที่ 2</span>
-            <h3>สรุปค่าเช่า</h3>
+            <h3>สรุปค่าเช่า (ค่าธรรมเนียมจะหักจากผู้ให้เช่า)</h3>
           </div>
           <div class="form-grid">
             <div class="form-group">
-              <label>ค่าเช่าต่อปี</label>
+              <label>ค่าเช่าต่อปี (ผู้เช่าชำระ)</label>
               <input type="text" value="฿<?= number_format($pricePerYear, 2); ?>" readonly>
             </div>
             <div class="form-group">
-              <label>ค่าธรรมเนียม</label>
+              <label>ค่าธรรมเนียม (หักจากผู้ให้เช่า)</label>
               <input type="text" value="<?= $feeRate > 0 ? ('฿' . number_format($feeAmount, 2) . ' (' . number_format($feeRate, 2) . '%)') : 'ไม่มี'; ?>" readonly>
             </div>
             <div class="form-group">
-              <label>ยอดรวมสัญญา 1 ปี</label>
+              <label>ผู้เช่าต้องชำระทั้งสิ้น</label>
               <input type="text" value="฿<?= number_format($totalDue, 2); ?>" readonly>
             </div>
           </div>
